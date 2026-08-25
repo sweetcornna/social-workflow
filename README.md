@@ -34,15 +34,25 @@ uv run python -m core.accounts sync
 uv run python -m core.accounts list
 
 # 4. 门禁自检（--offline 跳过所有网络检查）
+#    没填 ANTHROPIC_API_KEY 时这里会有 1 条 FAIL 并说"门禁未通过"——那是**预期的**，
+#    它拦的是"真实生成不可用"，不拦这套演练：下面几步照跑，生成链走 ScriptedLLM。
 uv run python scripts/preflight.py --offline
 
 # 5. 起控制面（默认同时起 APScheduler，见 SW_SCHEDULER_ENABLED）
 uv run uvicorn core.main:app --port 8000 --reload
 
 # 6. 三平台各跑一条到审核队列
-curl -sX POST 'localhost:8000/dev/run_wechat_pipeline?account_id=wechat-demo-01&topic=通勤一小时的隐形成本'
-curl -sX POST 'localhost:8000/dev/run_xhs_pipeline?account_id=xhs-demo-01&topic=租房不打孔怎么收纳&make_cards=false'
-curl -sX POST 'localhost:8000/dev/run_douyin_pipeline?account_id=douyin-demo-01&topic=通勤一小时的隐形成本&make_cover=false'
+#    topic 是中文，必须让 curl 自己编码（-G --data-urlencode）：直接把汉字写进 URL，
+#    请求行里就带着裸的非 ASCII 字节，uvicorn 会以 "Invalid HTTP request received" 拒掉。
+curl -sX POST -G localhost:8000/dev/run_wechat_pipeline \
+  --data-urlencode 'account_id=wechat-demo-01' \
+  --data-urlencode 'topic=通勤一小时的隐形成本'
+curl -sX POST -G localhost:8000/dev/run_xhs_pipeline \
+  --data-urlencode 'account_id=xhs-demo-01' \
+  --data-urlencode 'topic=租房不打孔怎么收纳' --data-urlencode 'make_cards=false'
+curl -sX POST -G localhost:8000/dev/run_douyin_pipeline \
+  --data-urlencode 'account_id=douyin-demo-01' \
+  --data-urlencode 'topic=通勤一小时的隐形成本' --data-urlencode 'make_cover=false'
 
 # 7. 人工审核 → 批准
 open http://localhost:8000/review
@@ -264,6 +274,7 @@ uv run python scripts/preflight.py                    # 有凭据时实际探测
 | 详情页提示"尚未渲染 body_html" | 没装 Node；`brew install node` 后重跑生成链 |
 | 详情页没有封面 | 没装 Playwright：`uv sync --extra render && uv run playwright install chromium` |
 | 审核 findings 里有 `lexicon.not_installed` | 敏感词库没下，跑 `uv run python scripts/fetch_lexicon.py` |
+| 零凭据演练时小红书/抖音 `review.passed=false`（`blocking=1`） | 没配 `SW_IMAGEGEN_API_KEY`，这两个平台的稿子没有配图。**这是机器审核在正常工作**，稿子照样进了审核队列；配上生图 key（或回落的 `DEEPSEEK_API_KEY`）后就不再 block |
 | **dev 端点报"账号不存在"** | 没跑 `uv run python -m core.accounts sync`（快速开始第 3 步）。preflight 的「台账已入库」会直接报 FAIL |
 | **排期项一直不发** | `POST /dev/tick/scheduled_publish` 看返回的 `skipped_*`：`unconfirmed`=等人点「确认发布」（默认开启，**最常见**）、`account`=账号不健康、`window`=不在发布时段、`rate`=配额用完或没到间隔、`publisher`=发布器没注册、`not_advanced`=发布器返回了但状态没推进到 published（防御性守卫，正常恒为 0）；`scanned=0`=还没到 `scheduled_at`。详见 `docs/OPS.md` 1.6 |
 | **一条稿都不生成** | `python -m core.accounts list` 看 `daily_target` 是不是 0；再看选题池空不空、token 预算是不是耗尽 |

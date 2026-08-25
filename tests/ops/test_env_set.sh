@@ -435,8 +435,21 @@ assert_order() {
 }
 
 file_mode() {
-  # macOS 与 GNU 的 stat 参数不同，两条都试。
-  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null
+  # macOS 与 GNU 的 stat 参数不同，两条都试——但**不能靠退出码分辨**：
+  # BSD 的 `-f` 是「格式串」，GNU 的 `-f` 是「看文件系统状态」。GNU stat 拿到
+  # `-f '%Lp'` 会**成功**并打出一段 `  File: "..."` 的文件系统信息，`||` 那条退路
+  # 根本轮不到执行，assert_mode 于是拿着这段文字去比 0600。2026-08-25 在 Linux CI
+  # 上实测炸了 8 条。所以判据换成「输出像不像一个八进制权限」，而不是「命令有没有失败」。
+  local mode
+  mode="$(stat -c '%a' "$1" 2>/dev/null)"   # GNU coreutils
+  if [[ ! "${mode}" =~ ^[0-7]{3,4}$ ]]; then
+    mode="$(stat -f '%Lp' "$1" 2>/dev/null)"  # BSD / macOS
+  fi
+  if [[ ! "${mode}" =~ ^[0-7]{3,4}$ ]]; then
+    printf 'file_mode: 两种 stat 都没给出权限位（%s）\n' "$1" >&2
+    return 1
+  fi
+  printf '%s' "${mode}"
 }
 
 assert_mode() {
