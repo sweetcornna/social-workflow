@@ -78,6 +78,30 @@ def _crash_mid_publish(notifier, *, account_id: str = "acc-stale") -> str:
         )
     assert status == ContentStatus.PUBLISHING.value, "没造出崩溃残留，后面全白测"
     assert phase == PublishPhase.IN_FLIGHT.value
+
+    # 残留的**形状**是真崩出来的（上面那段），但它的**时刻**必须钉在 NOW 上。
+    # 不钉的话：`updated_at` 走的是 models.utcnow() 的真实墙钟，而下面每条用例都拿
+    # `NOW ± 阈值 ± 1 分钟` 去卡边界——NOW 是模块导入时刻。整套测试从收集到跑到这个
+    # 文件只要超过 1 分钟，墙钟就漂出那 1 分钟的余量，扫描器**正确地**认为"还没到
+    # 阈值"，五条用例一起红。本机 53 秒跑完所以一直是绿的，CI 上 2 分 22 秒，
+    # 2026-08-25 当场炸了。这不是产品的时区/时钟问题，是夹具把两个时钟混着用。
+    with db.session_scope() as session:
+        item = session.get(ContentItem, item_id)
+        assert item is not None
+        item.updated_at = NOW
+        record = session.scalar(
+            select(PublishRecord).where(PublishRecord.content_item_id == item_id)
+        )
+        assert record is not None
+        record.created_at = NOW
+        record.updated_at = NOW
+
+    with db.session_scope() as session:
+        pinned = session.scalar(
+            select(PublishRecord.updated_at).where(PublishRecord.content_item_id == item_id)
+        )
+    # 显式赋值必须真的盖过 onupdate=utcnow，否则上面那段等于没写。
+    assert pinned == NOW, "残留时刻没钉住，边界用例又会跟着墙钟漂"
     return item_id
 
 

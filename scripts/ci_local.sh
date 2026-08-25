@@ -279,6 +279,21 @@ run_ops() {
     return 1
   fi
 
+  # 与 .github/workflows/ci.yml 的「Shell 静态检查」同一条命令。本机跑不到它，
+  # 就只能在 CI 上才发现——2026-08-25 真栽过一次（info 级也让 shellcheck 退 1）。
+  if command -v shellcheck >/dev/null 2>&1; then
+    note "shellcheck"
+    if shellcheck "${REPO_ROOT}"/scripts/ops/*.sh "${REPO_ROOT}"/tests/ops/*.sh; then
+      ok "shellcheck"
+    else
+      rc=$?
+      printf '  失败：shellcheck（退出码 %s）\n' "${rc}" >&2
+      fail_details+=("shellcheck（退出码 ${rc}）")
+    fi
+  else
+    note "跳过 shellcheck（本机没装；CI 上是必过项）"
+  fi
+
   for f in "${test_files[@]}"; do
     note "$(basename "${f}")"
     if bash "${f}"; then

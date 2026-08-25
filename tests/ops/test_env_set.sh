@@ -1251,7 +1251,11 @@ ut_case() { case_name="$1"; cases=$((cases + 1)); }
 ut_drive() {
   {
     printf '%s\n' 'set -euo pipefail'
+    # 下面两行往临时脚本里写的是**字面 shell 源码**，$1/$@ 要留到那个脚本自己跑起来
+    # 的时候才展开——这里展开就等于把桩函数写死成空串。
+    # shellcheck disable=SC2016
     printf '%s\n' 'die() { printf "DIE: %s\n" "$1" >&2; shift; for ut_l in "$@"; do printf "  %s\n" "${ut_l}" >&2; done; exit 3; }'
+    # shellcheck disable=SC2016
     printf '%s\n' 'note() { printf "  %s\n" "$1"; }'
     printf 'source %q\n' "${UT_LIB}"
     cat
@@ -2897,7 +2901,7 @@ else
     chain_level=0
     for chain_field in ${chain_fields}; do
       chain_level=$((chain_level + 1))
-      chain_key="$(printf '%s' "${chain_field}" | tr 'a-z' 'A-Z')"
+      chain_key="$(printf '%s' "${chain_field}" | tr '[:lower:]' '[:upper:]')"
       if ! printf '%s\n' "${whitelist_sorted}" | grep -qx "${chain_key}"; then
         fail_assertion "回落链第 ${chain_level} 级 ${chain_key} 不在白名单里——那一级就没有合规的改法，闸门也管不着它"
       fi
@@ -2945,6 +2949,8 @@ fi
 # 注意大小写：远端正文用的是小写 ${key}，本地那几处 ${KEY} 分支（环境变量层、收尾提示）是
 # 合理的、也不在这条扫描的范围里。
 case_name="the signing gate decides by the chain table, not by hardcoded key names"
+# 两个 grep 模式要匹配的就是远端脚本里**字面的** `"${key}"`，不能在这里展开。
+# shellcheck disable=SC2016
 if grep -q '"${key}" == "SW_' "${SCRIPT}" || grep -q '"${key}" == "TELEGRAM_' "${SCRIPT}"; then
   fail_assertion "远端脚本里出现了按键名分支的判定——签名密钥那道闸门的判据必须是 signing_above 那张表"
 fi
@@ -2971,6 +2977,9 @@ else
   subset_hits=0
   subset_violations=""
   for ascii_code in $(seq 33 126); do
+    # 内层 printf 造出 \NNN 八进制转义，外层再把它解成字符——变量出现在格式串里
+    # 正是这个惯用法的本体，改成 '%s' 就造不出字符了。
+    # shellcheck disable=SC2059
     subset_char="$(printf "\\$(printf '%03o' "${ascii_code}")")"
     # 授权串那一段：末位换成待测字符。形状放行它，共用字符集就必须也放行它。
     if [[ "12345678:${subset_pad}${subset_char}" =~ ${BOT_SHAPE_RE} ]]; then
