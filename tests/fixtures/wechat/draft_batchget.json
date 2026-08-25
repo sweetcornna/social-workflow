@@ -1,0 +1,46 @@
+{
+  "total_count": 2,
+  "item_count": 2,
+  "item": [
+    {
+      "media_id": "FIXTURE-draft-media-id-0001",
+      "content": {
+        "news_item": [
+          {
+            "article_type": "news",
+            "title": "已经建过的草稿标题",
+            "author": "小编",
+            "digest": "这是摘要",
+            "content": "",
+            "content_source_url": "",
+            "thumb_media_id": "FIXTURE-thumb-media-id-0001",
+            "need_open_comment": 0,
+            "only_fans_can_comment": 0,
+            "url": "http://mp.weixin.qq.com/s?__biz=FIXTURE&idx=1"
+          }
+        ]
+      },
+      "update_time": 1786000000
+    },
+    {
+      "media_id": "FIXTURE-draft-media-id-0002",
+      "content": {
+        "news_item": [
+          {
+            "article_type": "news",
+            "title": "另一篇不相干的草稿",
+            "author": "小编",
+            "digest": "别的摘要",
+            "content": "",
+            "content_source_url": "",
+            "thumb_media_id": "FIXTURE-thumb-media-id-0002",
+            "need_open_comment": 0,
+            "only_fans_can_comment": 0,
+            "url": ""
+          }
+        ]
+      },
+      "update_time": 1785990000
+    }
+  ]
+}

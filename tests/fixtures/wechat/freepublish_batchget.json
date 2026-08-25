@@ -1,0 +1,24 @@
+{
+  "total_count": 1,
+  "item_count": 1,
+  "item": [
+    {
+      "article_id": "FIXTURE-article-id-0001",
+      "content": {
+        "news_item": [
+          {
+            "title": "已经发布过的文章标题",
+            "author": "小编",
+            "digest": "这是摘要",
+            "content": "",
+            "content_source_url": "",
+            "thumb_media_id": "FIXTURE-thumb-media-id-0001",
+            "url": "http://mp.weixin.qq.com/s?__biz=FIXTURE&idx=1",
+            "is_deleted": false
+          }
+        ]
+      },
+      "update_time": 1786000100
+    }
+  ]
+}

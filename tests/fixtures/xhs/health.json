@@ -1,0 +1,11 @@
+{
+  "success": true,
+  "data": {
+    "status": "healthy",
+    "service": "xiaohongshu-mcp",
+    "version": "v2.5.0",
+    "account": "github.com/xpzouying/xiaohongshu-mcp",
+    "timestamp": "now"
+  },
+  "message": "服务正常"
+}

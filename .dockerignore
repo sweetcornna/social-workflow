@@ -1,0 +1,13 @@
+.git
+.venv
+.env
+.pytest_cache
+.ruff_cache
+__pycache__
+*.pyc
+data
+profiles
+media
+logs
+*.db
+docker-compose.xhs.yml

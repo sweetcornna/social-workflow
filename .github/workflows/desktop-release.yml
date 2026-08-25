@@ -1,0 +1,184 @@
+name: Desktop Release
+
+# 工作台桌面版（macOS DMG/ZIP + Windows NSIS）。跨平台构建只能靠 Actions 的矩阵：
+# 本机只有 mac，Windows 产物**只由这条流水线证明**。
+#
+# 触发：打 `v*` tag 自动跑；也可以手动 dispatch。
+#   - dispatch 填 tag → 构建完把产物追加到那个 tag 的 Release
+#   - dispatch 留空   → 只构建，产物挂在 workflow artifacts 上（拿来验 Windows 能不能过）
+#
+# 现有 ci.yml 一行没动，两条流水线互不相干。
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "追加产物的 Release tag（如 v0.1.0）。留空则只构建，不碰 Release"
+        required: false
+        type: string
+
+concurrency:
+  group: desktop-release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.33.0"
+
+jobs:
+  build:
+    name: 构建（${{ matrix.label }}）
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS · dmg+zip · arm64/x64
+            builder_flag: "--mac"
+            artifact_name: sw-workbench-macos
+            artifact_glob: |
+              desktop/dist/*.dmg
+              desktop/dist/*.zip
+          - os: windows-latest
+            label: Windows · nsis · x64
+            builder_flag: "--win"
+            artifact_name: sw-workbench-windows
+            artifact_glob: |
+              desktop/dist/*.exe
+
+    steps:
+      # dispatch 的 tag 会被直接喂给 checkout 的 ref，先把形状卡死
+      - name: 校验 tag 形状
+        if: ${{ inputs.tag != '' }}
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          case "$TAG" in
+            v[0-9A-Za-z._-]*) echo "tag = $TAG" ;;
+            *) echo "非法 tag：$TAG（必须形如 v0.1.0）" >&2; exit 1 ;;
+          esac
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: |
+            ui/pnpm-lock.yaml
+            desktop/pnpm-lock.yaml
+
+      - name: 装前端依赖
+        working-directory: ui
+        run: pnpm install --frozen-lockfile
+
+      # 静态导出。**不要**设 NEXT_PUBLIC_SW_CHAT_URL——桌面版不出对话入口
+      - name: 构建工作台静态产物
+        working-directory: ui
+        run: pnpm build
+
+      - name: 装桌面壳依赖
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      # pnpm 的 side-effects 缓存偶尔会跳过 electron 的 postinstall，
+      # 那样 electron-builder 会拿不到二进制。缺了就补一次，几秒钟的事
+      - name: 确保 electron 二进制就位
+        working-directory: desktop
+        shell: bash
+        run: |
+          if [ ! -f node_modules/electron/path.txt ]; then
+            echo "electron postinstall 没跑，手动补一次"
+            node node_modules/electron/install.js
+          fi
+          cat node_modules/electron/path.txt
+
+      - name: electron-builder
+        working-directory: desktop
+        shell: bash
+        env:
+          # 没有开发者证书，显式关掉自动发现，免得 runner 上捡到别的身份
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          GH_TOKEN: ""
+        run: pnpm exec electron-builder ${{ matrix.builder_flag }} --publish never
+
+      - name: 产物清单
+        working-directory: desktop
+        shell: bash
+        run: ls -lh dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: 追加到 Release
+    needs: build
+    # tag push 一定发；手动 dispatch 只有填了 tag 才发
+    if: ${{ github.event_name == 'push' || inputs.tag != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: sw-workbench-*
+          merge-multiple: true
+
+      - name: 产物清单
+        run: ls -lh artifacts
+
+      # append_body：不覆盖主 agent 写好的 Release notes，只把绕 Gatekeeper 的说明追加上去。
+      # 注意重跑同一个 tag 会把这段再追加一次，需要的话手动清一下。
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: artifacts/*
+          fail_on_unmatched_files: true
+          append_body: true
+          body: |
+
+            ---
+
+            ### 桌面版安装说明
+
+            | 平台 | 下载 |
+            | --- | --- |
+            | macOS Apple Silicon | `sw-workbench-<版本>-mac-arm64.dmg` |
+            | macOS Intel | `sw-workbench-<版本>-mac-x64.dmg` |
+            | Windows 10/11 x64 | `sw-workbench-<版本>-win-x64.exe` |
+
+            **macOS 首次打开会被 Gatekeeper 拦住**（应用没有签名，也没有公证——本项目没有
+            Apple 开发者账号）。两种绕法，任选其一：
+
+            1. 在「访达」里**右键点应用 → 打开**，弹窗里再点一次「打开」；
+            2. 或者在终端里去掉隔离标记：
+
+               ```
+               xattr -dr com.apple.quarantine "/Applications/social_workflow 工作台.app"
+               ```
+
+            Windows 的 SmartScreen 同理：点「更多信息 → 仍要运行」。
+
+            桌面版**自己不跑 core**，数据面全部反代到你配置的 core 地址。首次启动默认指
+            `http://127.0.0.1:18000`（P17 的本机隧道口），改在菜单「设置 core 地址…」里。

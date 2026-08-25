@@ -1,0 +1,387 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ════════════════════════════════════════════════════════════════════
+ * Organic 声调（P14）—— 皮换骨不换：P13 定下的版式纪律（inset 侧栏、
+ * 锁视口、DataTable 单一表皮、键盘流、禁省略号、骨架镜像、testid 冻结）
+ * 原样保留；本次替换的只是视觉声调本身。
+ *
+ * 换掉了什么：P13 的无彩度中性灰阶（日 #f7f7f7 / 夜 #0a0a0a）、10px 圆角
+ * 基准、"边框分界"的卡面语法 —— 那套读起来冷静但生硬，像默认脸的控制台。
+ *
+ * 换成了什么：**暖奶油/暖炭打底 + 陶土主色**，圆角基准 10px→16px、
+ * card-radius 12px→28px，分界方式从描边改成填色（--sw-card 语义从
+ * "白卡面"变成"沙色 surface"，卡面靠明度差从底色里"长出来"而不是被
+ * 一条线圈起来——B1 换 token 的值，B2 把 .sw-card/.sw-inset/.sw-pop 的
+ * 描边真正去掉，并把小控件药丸化）。色阶换算全部用 OKLCH 精确矩阵计算（Björn
+ * Ottosson 标准），WCAG 对比度用相对亮度公式实算，不目测。
+ *
+ * 签名元素规则（P14 任务书裁决 3，写在这里是唯一出处）：
+ * 陶土作为"信息"只出现在两处——confirm-clock 告急读数（primary-deep +
+ * 全站唯一的大号数字）与排期页账号泳道的时间带；除此之外陶土全部是
+ * chrome（导航选中态的实底药丸、主按钮）。「需要你」待办组是全站唯一
+ * 一处 100 档 tint 面板 + 色脊，其余地方不再用陶土去装饰信息密度。
+ *
+ * 命名：`--sw-*` 变量名与既有 `sw-` 工具类前缀原样保留（约 60 个组件
+ * 文件与 tailwind 映射零改动），只换数值；`.sw-shimmer` 类名冻结
+ * （e2e `settle()` 依赖它探测骨架屏是否停止）。
+ * ════════════════════════════════════════════════════════════════════ */
+@layer base {
+  :root {
+    /* ── 底与面 ─────────────────────────────────────────────────────
+       canvas 是应用底色（沙/奶油，Organic --color-bg），card 现在是
+       "沙色 surface"（Organic --color-surface），靠明度差与 canvas
+       分界，不再靠描边。popover 在 canvas 上再抬一档（neutral-100），
+       浮层用更重的投影把自己从页面里"提"出来。 */
+    --sw-canvas: oklch(0.941 0.027 80.2); /* #f5ead8 */
+    --sw-card: oklch(0.902 0.035 81.3); /* #ebddc5 */
+    --sw-popover: oklch(0.969 0.011 76.6); /* #f9f4ed，neutral-100 */
+
+    /* 面内的浅填充：输入框底、表头、次级块。沙上再加深一档
+       （neutral-200/300/400），不是灰阶，是同一条暖中性坡道。 */
+    --sw-muted: oklch(0.93 0.018 81.3); /* #eee7db，neutral-200 */
+    --sw-muted-hover: oklch(0.87 0.023 80.7); /* #dcd3c4，neutral-300 */
+    --sw-muted-strong: oklch(0.78 0.026 81.1); /* #c0b6a5，neutral-400 */
+    /* 表格行 hover。掺 fg 不掺灰阶——color-mix 直接从 fg 变量取色，
+       日夜两套自动同源，不需要各写一遍。 */
+    --sw-row-hover: color-mix(in oklch, var(--sw-fg) 4%, transparent);
+
+    /* 细线：掺底而不是灰阶，porting-notes 第 3 节的直接落点。 */
+    --sw-line: color-mix(in oklch, var(--sw-fg) 16%, transparent);
+    --sw-line-strong: color-mix(in oklch, var(--sw-fg) 26%, transparent);
+
+    /* ── 文字灰阶 ───────────────────────────────────────────────────
+       fg 正文 / fg-2 次级正文 / fg-3 说明 / fg-4 元信息 / fg-5 装饰。
+       同样走 color-mix 掺 fg，而不是单独的 oklch 亮度点——好处是暗色
+       只需要换 fg 本身与掺入百分比，色相与陶土/沙调永远同源。
+       fg-4 对 canvas 与 card 都要过 4.5:1：58% 在这张沙色卡面上不够，
+       B1 实算后加浓到 65%——但那一下把 fg-4 顶到了 fg-3（66%）脸上，
+       两档在表格里 ΔE2000 只有 0.71，肉眼根本分不开（B6 走查实测）。
+       B6 重新解了一次联立：fg-4 抬到 66%（对 card 4.53:1，也补上了
+       "行 hover 底"这个 B1 没算的底色——65% 在那儿只有 4.43:1），
+       fg-3 拉到 73% 让开身位。**66% 是 fg-4 的地板**：break-even 在
+       65.554%，四舍五入回 65 就掉出 AA。两档间距 ΔE2000≈4.5，与暗色
+       侧（68%/60%，ΔE≈4.55）对齐，日夜终于同一套节奏。 */
+    --sw-fg: oklch(0.237 0.004 48.6); /* #201e1d */
+    --sw-fg-2: color-mix(in oklch, var(--sw-fg) 80%, transparent);
+    --sw-fg-3: color-mix(in oklch, var(--sw-fg) 73%, transparent);
+    --sw-fg-4: color-mix(in oklch, var(--sw-fg) 66%, transparent);
+    /* fg-5 只画分隔与禁用态（装饰用），不承诺 4.5:1——42% 在此底色上
+       实算约 2.5:1，故意不达标，禁止拿来排正文或徽字。 */
+    --sw-fg-5: color-mix(in oklch, var(--sw-fg) 42%, transparent);
+
+    /* ── 主色：陶土 ─────────────────────────────────────────────────
+       Organic accent 500（h≈52），全站只在两处允许它当"信息"抢眼：
+       confirm-clock 告急读数与排期账号泳道时间带（签名元素规则）；
+       其余全是 chrome（导航选中药丸、主按钮）。 */
+    --sw-primary: oklch(0.633 0.128 51.6); /* #c67139 */
+    /* primary-fg 只与 primary-solid 配对使用。任务书给的 "#f5ead8 系"
+       在精确 4.5:1 实算下不够（canvas 原色只有 3.77:1），沿 L 轴加浓到
+       接近纯白的暖白，primary-solid 也从陶土 600 精确 hex 往深处轻推
+       0.012（#b2622d→oklch 0.567），两头一起动，各退一步换 4.5:1 达标
+       且保留陶土色相——决策与理由见交付报告。 */
+    --sw-primary-solid: oklch(0.567 0.123 51.3); /* ~#ae5e29，陶土 600 微调 */
+    --sw-primary-fg: oklch(0.99 0.01 80.2); /* ~#fffbf4 */
+    /* primary-deep：tint 底上的文字/按压态/confirm-clock 告急，Organic accent 700 */
+    --sw-primary-deep: oklch(0.48 0.108 51.6); /* #8c491a */
+    --sw-primary-soft: oklch(0.969 0.017 50.4); /* #fff2eb，accent-100，tint 用实色不用透明度 */
+    --sw-primary-line: oklch(0.869 0.079 51.4); /* #ffc6a5，accent-300 */
+    /* 排期泳道时间带的填色。亮侧就是 primary-line 本身（accent-300 的浅桃
+       色铺满一整天也只是一层薄底），单独立一个名字是为了给暗侧留出口：
+       暗侧 primary-line 是 accent-700 #8c491a，画两三段窗口很准，可一旦
+       遇上**没配 publish_windows 的号**（整条 00-24 全铺），那就是一块
+       高饱和实心板砖，比导航选中药丸还抢眼——签名元素规则允许时间带当
+       "信息"，但没允许它当全页最重的一块色。暗侧因此下沉到 accent-800。
+       B6 走查实测，见交付报告。 */
+    --sw-primary-band: var(--sw-primary-line);
+
+    /* ── 状态语义色 ─────────────────────────────────────────────────
+       三点与陶土（h≈55）在暖弧上等距排开、并排可分：err 陶红 h≈30、
+       primary 陶土 h≈55、warn 赭金 h≈80。ok 归鼠尾草（Organic
+       accent-2），红绿好坏语义不变，toneForStatus 零改动。 */
+    --sw-ok: oklch(0.54 0.064 124.3); /* ~#67754b，鼠尾草 600 加深到正文可读 */
+    --sw-ok-soft: oklch(0.971 0.034 124.9); /* #f0fae1，accent-2-100 */
+    --sw-warn: oklch(0.52 0.11 80); /* ~#8a6000，赭金 */
+    --sw-warn-soft: oklch(0.969 0.017 80); /* 100-tint 配方：借用 accent-100 的 L/C，转到赭金 H */
+    --sw-err: oklch(0.5 0.17 30); /* ~#af2c1f，陶红 */
+    --sw-err-soft: oklch(0.969 0.017 30); /* 100-tint 配方：借用 accent-100 的 L/C，转到陶红 H */
+
+    /* modal 遮罩：暖炭半透，不用纯黑。 */
+    --sw-scrim: oklch(0.29 0.011 84.6 / 0.5); /* #2e2b25 系 /0.5 */
+
+    /* ── 尺度 ───────────────────────────────────────────────────────
+       圆角基准从 10px 升到 16px（Organic radius-md），card-radius 即
+       Organic radius-lg 28px；新增 radius-sm 供药丸化后仍需直角的场景
+       （textarea、多行结构）。侧栏宽度不变。 */
+    --sw-radius: 1rem;
+    --sw-radius-sm: 0.5rem;
+    --sw-card-radius: 1.75rem;
+    --sw-pill-radius: 999px;
+    --sw-sidebar-w: 15rem;
+
+    /* 原生控件（select 下拉、datetime 选择器、滚动条）跟着主题走。
+       不声明的话暗色下这些控件仍按浅色渲染，白底黑字戳在暖炭页面上。 */
+    color-scheme: light;
+
+    /* Organic 暖投影：墨 #2e2b25 基，14%/22% 两档不透明度，直接对应
+       styles.css 的 shadow-sm/shadow-lg 配方（card 取 sm 的尺寸，pop 取
+       lg 的尺寸）。不用纯黑。 */
+    --sw-shadow-card: 0 1px 2px color-mix(in oklch, oklch(0.29 0.011 84.6) 14%, transparent);
+    --sw-shadow-pop: 0 12px 32px color-mix(in oklch, oklch(0.29 0.011 84.6) 22%, transparent);
+  }
+
+  .dark {
+    color-scheme: dark;
+    --sw-canvas: oklch(0.237 0.004 48.6); /* #201e1d，暖炭不是纯黑 */
+    --sw-card: oklch(0.29 0.011 84.6); /* #2e2b25，即亮色 neutral-900 档 */
+    --sw-popover: oklch(0.328 0.009 67.5); /* #383430 */
+
+    /* muted 三档往上让一格（neutral-300/400/500），避免与 popover
+       （neutral-200 那一档）撞成同一个颜色——popover 与输入井需要能
+       分清谁是谁。 */
+    --sw-muted: oklch(0.393 0.015 79.7); /* #4a453d，neutral-300 */
+    --sw-muted-hover: oklch(0.477 0.019 82.8); /* #625c51，neutral-400 */
+    --sw-muted-strong: oklch(0.566 0.022 80); /* #7d7568，neutral-500 */
+    --sw-row-hover: color-mix(in oklch, var(--sw-fg) 6%, transparent);
+
+    --sw-line: color-mix(in oklch, var(--sw-fg) 18%, transparent);
+    --sw-line-strong: color-mix(in oklch, var(--sw-fg) 28%, transparent);
+
+    --sw-fg: oklch(0.941 0.027 80.2); /* #f5ead8，与底对调 */
+    --sw-fg-2: color-mix(in oklch, var(--sw-fg) 82%, transparent);
+    --sw-fg-3: color-mix(in oklch, var(--sw-fg) 68%, transparent);
+    --sw-fg-4: color-mix(in oklch, var(--sw-fg) 60%, transparent);
+    --sw-fg-5: color-mix(in oklch, var(--sw-fg) 44%, transparent); /* 装饰用，不承诺 4.5:1 */
+
+    /* 夜间主色抬到 accent-400，暗底上压暗会糊成褐色，读不出是同一条色 */
+    --sw-primary: oklch(0.781 0.124 51.7); /* #f6a06b */
+    --sw-primary-solid: oklch(0.838 0.104 54.9); /* #ffb888，accent 暗侧 600（ramp 精确值） */
+    --sw-primary-fg: oklch(0.29 0.054 52.3); /* #402310，accent-900，深字配亮底 */
+    --sw-primary-deep: oklch(0.888 0.07 56.2); /* #ffcfae，accent 暗侧 700 */
+    --sw-primary-soft: oklch(0.277 0.045 49.3); /* #3a2113，accent 暗侧 100 */
+    --sw-primary-line: oklch(0.48 0.108 51.6); /* #8c491a，accent 暗侧 300 */
+    /* 见 :root 处的说明：暗侧时间带比 line 再沉一档，全天铺满时才不糊成板砖 */
+    --sw-primary-band: oklch(0.386 0.084 50.9); /* #643312，accent-800 */
+
+    --sw-ok: oklch(0.816 0.077 124.3); /* #b8cc95，accent-2 暗侧 600（翻转档） */
+    --sw-ok-soft: oklch(0.249 0.028 126.1); /* #1e2415，accent-2 暗侧 100 */
+    --sw-warn: oklch(0.82 0.1 80); /* 提亮档，实算对比后落定 */
+    --sw-warn-soft: oklch(0.277 0.045 80); /* 翻转：借用 accent 暗侧 100 的 L/C */
+    --sw-err: oklch(0.7 0.15 30);
+    --sw-err-soft: oklch(0.277 0.045 30); /* 翻转：借用 accent 暗侧 100 的 L/C */
+
+    --sw-scrim: oklch(0.108 0.005 71.3 / 0.6); /* #050403 系 /0.6——neutral-900 翻转后变最浅档，不能再当遮罩，另起锚点 */
+
+    /* 暗侧阴影不可见，换成发丝亮边；card 只留亮边（对应 shadow-sm 暗侧
+       行），pop 亮边 + 环境暗影一起上（对应 shadow-lg 暗侧行）。 */
+    --sw-shadow-card: inset 0 0 0 1px color-mix(in oklch, var(--sw-fg) 10%, transparent);
+    --sw-shadow-pop:
+      inset 0 0 0 1px color-mix(in oklch, var(--sw-fg) 13%, transparent),
+      0 16px 40px oklch(0 0 0 / 0.55);
+  }
+
+  * {
+    border-color: var(--sw-line);
+  }
+
+  /* 底色画在 html 上（最深一层），登录页、404、外壳共用一片底，零 JS 不闪。
+     变量随 .dark 翻面，一条规则覆盖日夜。渐变与极光全部退场。 */
+  html {
+    background-color: var(--sw-canvas);
+    min-height: 100%;
+  }
+
+  body {
+    background-color: var(--sw-canvas);
+    color: var(--sw-fg);
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* 焦点环走主色实线 outline（Organic 原文：2px accent + offset 2px）。
+     P14.B2 删掉了原来附带的 `border-radius: calc(var(--sw-radius) - 2px)`：
+     那一行会在获得焦点的瞬间把元素自己的圆角改成 14px，药丸化之后按钮一被
+     Tab 到就从 999px 塌成方角——焦点环本来就跟着元素自身的圆角走，不需要
+     替它决定形状。 */
+  :focus-visible {
+    outline: 2px solid var(--sw-primary);
+    outline-offset: 2px;
+  }
+
+  /* 原生勾选/滑块与光标走主色。Organic 的 .input 也把 caret 染成 accent，
+     是"这个控件属于这套系统"最省事的一处交代。 */
+  input,
+  textarea,
+  select {
+    accent-color: var(--sw-primary);
+    caret-color: var(--sw-primary);
+  }
+
+  ::selection {
+    background: var(--sw-primary-soft);
+  }
+}
+
+@layer utilities {
+  /* ── 卡面 ───────────────────────────────────────────────────────────
+     全站唯一的面。P14.B2 去描边：Organic 的分界方式是**填色**——沙色 surface
+     与奶油底之间有一档明度差，卡面是从底色里"长"出来的，不是被一条线圈起来
+     的。描边留着的话，28px 大圆角上那条线会把卡片描成贴纸。
+     暗色下 --sw-shadow-card 是一圈发丝内亮边（暗底吃掉投影，亮边是唯一还读得出
+     "这里有个面"的办法），那是阴影 token 自己的暗侧定义，不是又一条 border。 */
+  .sw-card {
+    background-color: var(--sw-card);
+    border: 0;
+    border-radius: var(--sw-card-radius);
+    box-shadow: var(--sw-shadow-card);
+  }
+  /* 浮层（弹窗、命令面板）：向亮抬一档的面 + 更重的投影拉开层级。
+     圆角交给调用处（弹窗 28px、下拉菜单 16px），这里不替它们决定。 */
+  .sw-pop {
+    background-color: var(--sw-popover);
+    border: 0;
+    box-shadow: var(--sw-shadow-pop);
+  }
+  /* 卡面内部的次级块：只换底，不浮起也不描边。muted 恰好夹在 canvas 与 card
+     之间——坐在卡面上时它偏亮，坐在页底上时它偏暗，两种场景都读得出来。 */
+  .sw-inset {
+    background-color: var(--sw-muted);
+    border: 0;
+  }
+
+  /* ── 侧栏导航项 ─────────────────────────────────────────────────────
+     药丸形，一处定义（dormice 的 menuButtonClass 同理）；侧栏与命令面板
+     都从这里取，否则两边会各长各的。 */
+  .sw-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    width: 100%;
+    border-radius: var(--sw-pill-radius);
+    padding: 0.4375rem 0.75rem;
+    font-size: 13px;
+    font-weight: 500;
+    /* 侧栏是应用 chrome 不是网页链接：光标一律箭头，免得 Link 与 button
+       在同一列里一个手型一个箭头。页面内容区不跟这条。 */
+    cursor: default;
+    color: var(--sw-fg-2);
+    transition: background-color 150ms linear, color 150ms linear;
+  }
+  /* hover 是一层陶土 tint（accent-100），选中是**实底陶土药丸**——
+     porting-notes 第 3 节点名的那条："选中 nav 项 = 实心陶土药丸 + 底色文字，
+     不是浅灰底"。灰底选中态在一列灰按钮里根本分不出谁被选中了。 */
+  .sw-nav-item:hover {
+    background-color: var(--sw-primary-soft);
+    color: var(--sw-primary-deep);
+  }
+  .sw-nav-item[data-active="true"] {
+    background-color: var(--sw-primary-solid);
+    color: var(--sw-primary-fg);
+  }
+  /* 选中项的 hover 沿色阶再过一档（600→700），与主按钮同一套按压语法 */
+  .sw-nav-item[data-active="true"]:hover {
+    background-color: var(--sw-primary-deep);
+    color: var(--sw-primary-fg);
+  }
+
+  /* ── 排版细节 ───────────────────────────────────────────────────────
+     数据、时刻、数字一律 Geist Mono + tabular，列宽才对得齐。 */
+  .sw-num {
+    font-family: var(--font-geist-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .sw-label {
+    font-family: var(--font-geist-mono), ui-monospace, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--sw-fg-4);
+  }
+  .sw-prose {
+    color: var(--sw-fg-2);
+    line-height: 1.75;
+    font-size: 13.5px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  /* CJK 词组不许被劈开（「停止」被断成两行是 dormice 实锤过的坑） */
+  .sw-keep {
+    white-space: nowrap;
+  }
+
+  /* 细滚动条，中性色 */
+  .sw-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sw-line-strong) transparent;
+  }
+  .sw-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .sw-scroll::-webkit-scrollbar-thumb {
+    background: var(--sw-line-strong);
+    border-radius: 999px;
+  }
+  .sw-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* ── 动效 ───────────────────────────────────────────────────────────
+     只剩两个：骨架微光与浮层入场。呼吸脉冲、琥珀辉光、画线动画全部撤掉
+     ——控制台安静才显得沉稳。 */
+  @keyframes sw-shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+  .sw-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      var(--sw-muted) 0%,
+      var(--sw-muted-hover) 50%,
+      var(--sw-muted) 100%
+    );
+    background-size: 200% 100%;
+    animation: sw-shimmer 1.6s linear infinite;
+  }
+
+  /* 登录页 token 错误时的抖动。靠 React `key` 重挂载触发。 */
+  @keyframes login-shake {
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+    20%,
+    60% {
+      transform: translateX(-4px);
+    }
+    40%,
+    80% {
+      transform: translateX(4px);
+    }
+  }
+
+  /*
+   * reduced-motion 的口径：**装饰全停，功能减速不停**。
+   * 骨架微光与浮层入场是纯装饰，直接关掉（关掉后元素停在终态，不是起始态）；
+   * spinner 是"它还在跑"这句话本身，关掉就等于把状态信息删了，所以只放慢。
+   * LiveDot 的 ping 走 `motion-safe:` 前缀，由 Tailwind 自己接管。
+   */
+  @media (prefers-reduced-motion: reduce) {
+    .sw-shimmer {
+      animation: none;
+      background-image: none;
+      background-color: var(--sw-muted);
+    }
+    .animate-fade-in,
+    .animate-pop-in {
+      animation: none;
+    }
+    .animate-spin {
+      animation-duration: 1.8s;
+    }
+  }
+}

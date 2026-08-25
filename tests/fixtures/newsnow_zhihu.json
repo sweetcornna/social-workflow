@@ -1,0 +1,19 @@
+{
+  "status": "cache",
+  "id": "zhihu",
+  "updatedTime": "2026-08-15T22:00:00.000Z",
+  "items": [
+    {
+      "id": "z1",
+      "title": "某明星就争议事件作出回应",
+      "url": "https://www.zhihu.com/question/1",
+      "extra": {"info": "669 万热度", "hover": "知乎讨论摘要"}
+    },
+    {
+      "id": "z2",
+      "title": "远程办公三年后，公司为什么开始要求回办公室",
+      "url": "https://www.zhihu.com/question/2",
+      "extra": {"info": "421 万热度"}
+    }
+  ]
+}

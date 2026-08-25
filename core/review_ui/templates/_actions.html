@@ -1,0 +1,39 @@
+<div class="card">
+  <div class="row">
+    <span class="pill s-{{ item.status }}">当前状态：{{ item.status }}</span>
+    {% if message %}<span class="muted">{{ message }}</span>{% endif %}
+    {% if slot_text and not message %}<span class="muted">排期：{{ slot_text }}</span>{% endif %}
+  </div>
+  {% if item.status in ('draft', 'reviewing', 'rejected') %}
+  <div class="row" style="margin-top:12px; align-items:flex-start">
+    <form method="post" action="/review/{{ item.id }}/approve"
+          hx-post="/review/{{ item.id }}/approve" hx-target="#actions" hx-swap="innerHTML">
+      <input type="hidden" name="actor" value="{{ actor }}">
+      {% if needs_watch %}
+      {# 成片必须人工看完整片才放行（计划 2.2）。这个复选框是**证据**，
+         后端会再校验一次 watched 字段——只靠前端 disabled 挡不住 curl。 #}
+      <label class="watch-gate">
+        <input type="checkbox" name="watched" value="true" required
+               onchange="this.closest('form').querySelector('button').disabled = !this.checked">
+        我已<b>完整观看</b>这条成片，确认画面、字幕与口播都没有问题
+      </label>
+      {% endif %}
+      <button class="primary" type="submit" {% if needs_watch %}disabled{% endif %}>
+        批准（人工确认发布）
+      </button>
+    </form>
+    <form method="post" action="/review/{{ item.id }}/reject" class="row"
+          hx-post="/review/{{ item.id }}/reject" hx-target="#actions" hx-swap="innerHTML">
+      <input type="hidden" name="actor" value="{{ actor }}">
+      <input type="text" name="reason" placeholder="驳回理由（必填，回写 prompt）" style="width:280px" required>
+      <button class="danger" type="submit">驳回</button>
+    </form>
+  </div>
+  <div class="muted" style="margin-top:8px; font-size:13px">
+    批准即人工确认：会写入审计日志作为合规证据；发布只能从 approved 状态发起。
+    {% if needs_watch %}这条内容含视频，未勾选「已完整观看」的批准请求会被后端拒绝（422）。{% endif %}
+  </div>
+  {% else %}
+  <div class="muted" style="margin-top:8px">该状态下无人工审核动作。</div>
+  {% endif %}
+</div>

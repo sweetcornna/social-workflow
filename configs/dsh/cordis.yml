@@ -1,0 +1,190 @@
+# deepseek-harness（dsh）受限 Agent 组合 —— social_workflow 专用。
+#
+# 红线：**模型可调用的工具必须为零**。选题标题来自公开热榜（微博/知乎/百度…），
+# 属于不可信输入；一旦生成 Agent 带上 bash / fs / web / subagent 工具，提示注入
+# 就等于拿到了本机执行通道。所以这里既不挂 bash-local、fs-local、subprocess，
+# 也在 agent-spine-demo 里逐项关掉它自带的 bash / skill / jobs 工具。
+# 机械验证：runtime 每次请求前会往 session log 追加 `request/header` 事件，
+# 其中 `header.tools` 在"无工具请求"时**整个字段缺席**。
+# 见 tests/generation/test_llm_dsh_live.py::test_restricted_cordis_exposes_no_tools。
+#
+# 另一条硬约束：stdout 归 JSON-RPC 协议独占，绝不能挂任何 console logger。
+#
+# 凭据只以 `apiKeyEnv` 引用环境变量的形式出现，本文件不含任何密钥字面量。
+
+# ---------------------------------------------------------------- 服务入口
+# stdio JSON-RPC server；没有它 Python SDK 就没有和 agent 通信的通道。
+- id: sdk-jsonrpc-server
+  name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
+
+# ---------------------------------------------------------------- 模型路由
+# 多 provider 适配器。每条 route 的 `reasoning` 是该路由的思考档默认值，
+# 由 SW_DSH_REASONING 注入（generation/llm_dsh.py 按 effort 分档起进程）。
+- id: llm
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      # pi-ai 自带 catalog 里没有 deepseek-official（它叫 deepseek），
+      # 所以整条路由手工声明：协议 + 端点 + 模型表缺一不可。
+      # 路由名沿用 deepseek-official，与 dsh 官方 SDK 的默认 provider 名一致。
+      deepseek-official:
+        displayName: DeepSeek Official
+        apiKeyEnv: DEEPSEEK_API_KEY
+        api: openai-completions
+        baseURL: !!js process.env.SW_DSH_DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com'
+        reasoning: !!js process.env.SW_DSH_REASONING ?? 'medium'
+        # 私有网关的 URL 认不出方言，DeepSeek 的 thinking 走自己的 wire 形状。
+        # supportsDeveloperRole 必须显式关掉：pi-ai 对 reasoning 模型默认把 system
+        # 提示词发成 OpenAI 新式 `developer` 角色，DeepSeek 系上游只认 `system`
+        #（Sub2API 多渠道网关下表现为按渠道抽签式偶发 400，实测踩过）。
+        compat:
+          thinkingFormat: deepseek
+          supportsDeveloperRole: false
+        # 见下方 deepseek 路由的同名注释：不写 long 就等于关掉前缀缓存。
+        cacheRetention: long
+        models:
+          - id: deepseek-v4-flash
+            name: DeepSeek V4 Flash
+            contextWindow: 1000000
+            maxTokens: 384000
+            # key = 可选档位，value = 上线的写法。本项目 Effort 有 xhigh 一档，
+            # DeepSeek 没有，映射到 high——档位换算属于配置而不是代码。
+            reasoningEfforts: &deepseek_efforts
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+              xhigh: high
+              max: max
+          - id: deepseek-v4-pro
+            name: DeepSeek V4 Pro
+            contextWindow: 1000000
+            maxTokens: 384000
+            reasoningEfforts: *deepseek_efforts
+
+      # DeepSeek 系**网关**首选路由（SW_DSH_PROVIDER=deepseek）。路由键必须是
+      # pi-ai catalog 名 `deepseek`：pi-ai 的 openai-completions 方言探测按
+      # `provider === "deepseek"` 或 baseURL 含 deepseek.com 认 DeepSeek——
+      # 走私有网关（如 Sub2API）时 URL 对不上，只有路由名这条路能触发全套
+      # DeepSeek 方言（system 角色而非 `developer`、max_tokens 字段、
+      # reasoning_content 回填）。deepseek-official 路由名对不上 catalog，
+      # 挂私有网关会被当成标准 OpenAI 端点发 `developer` 角色而 400（实测踩过）。
+      deepseek:
+        displayName: DeepSeek (gateway-aware)
+        apiKeyEnv: DEEPSEEK_API_KEY
+        api: openai-completions
+        baseURL: !!js process.env.SW_DSH_DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com'
+        reasoning: !!js process.env.SW_DSH_REASONING ?? 'medium'
+        compat:
+          thinkingFormat: deepseek
+        # 前缀缓存的**开关**。pi-ai 的 openai-completions 只在
+        # `baseURL 含 api.openai.com` 或 `cacheRetention == long` 时才往请求体里放
+        # `prompt_cache_key`；本路由挂的是私有网关，URL 对不上，所以不写 long 就等于
+        # 一个字段都不发、命中率恒为 0（实测：同前缀两次调用 cache_read 都是 0）。
+        # 写了 long 会连带发 `prompt_cache_retention: "24h"`，<私有网关域名> 实测接受。
+        # 键的**取值**在 generation/llm_dsh.py：runtime 把 session id 前 64 字符当键。
+        cacheRetention: long
+        models:
+          - id: deepseek-v4-flash
+            name: DeepSeek V4 Flash
+            contextWindow: 1000000
+            maxTokens: 384000
+            reasoningEfforts: *deepseek_efforts
+          - id: deepseek-v4-pro
+            name: DeepSeek V4 Pro
+            contextWindow: 1000000
+            maxTokens: 384000
+            reasoningEfforts: *deepseek_efforts
+          # 同一台中转还挂着 gpt-5.6 系（SW_DSH_MODEL_ROUTING=true 时按 purpose 分派）。
+          # 不声明就会被 pi-ai 判成"该 provider 没有这个模型"，preflight 的静态审计先拦下来。
+          #
+          # 思考档**不能复用 *deepseek_efforts**：那张表把 xhigh 降级成 high（DeepSeek 系
+          # 没有 xhigh 这一档），而 gpt-5.6 系原生认 xhigh 与 max。preflight 的静态审计要求
+          # 请求哪一档就交付哪一档、不许静默降级，所以这里用恒等映射。
+          # 恒等映射覆盖全部档位；当前路由实际只用到 sol/xhigh 与 luna/max，两者都对着
+          # 上游实测过（luna/xhigh 也试过、同样正常，但改档后已不对应任何 purpose）。
+          - id: gpt-5.6-sol
+            name: GPT-5.6 Sol
+            contextWindow: 400000
+            maxTokens: 128000
+            reasoningEfforts: &gpt56_efforts
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+              xhigh: xhigh
+              max: max
+          - id: gpt-5.6-luna
+            name: GPT-5.6 Luna
+            contextWindow: 400000
+            maxTokens: 128000
+            reasoningEfforts: *gpt56_efforts
+
+      # OpenAI 兼容自定义网关（自建中转 / 私有部署）。端点、模型、上下文窗口
+      # 全部由 SW_DSH_GATEWAY_* 注入，不配就不用这条路由。
+      gateway:
+        displayName: OpenAI-compatible Gateway
+        apiKeyEnv: SW_DSH_GATEWAY_API_KEY
+        api: openai-completions
+        # 同上：私有网关的上游多为 DeepSeek/国产系，不认 `developer` 角色
+        compat:
+          supportsDeveloperRole: false
+        baseURL: !!js process.env.SW_DSH_GATEWAY_BASE_URL ?? 'http://127.0.0.1:8000/v1'
+        reasoning: !!js process.env.SW_DSH_REASONING ?? 'medium'
+        # 同 deepseek 路由：这条也是私有端点，URL 触发不了 pi-ai 的 OpenAI 分支。
+        # 假网关那条 dsh_live 用例就靠它把 prompt_cache_key 真的压在请求体里。
+        cacheRetention: long
+        models:
+          - id: !!js process.env.SW_DSH_GATEWAY_MODEL ?? 'gateway-default'
+            name: Gateway Default
+            contextWindow: !!js Number(process.env.SW_DSH_GATEWAY_CONTEXT_WINDOW ?? 131072)
+            maxTokens: !!js Number(process.env.SW_DSH_GATEWAY_MAX_TOKENS ?? 8192)
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+              xhigh: high
+              max: max
+
+      # 回 Claude 的路：anthropic 是 pi-ai catalog 路由，端点/协议/模型表全部
+      # 沿用 catalog（含 claude-opus-5），这里只补凭据引用与思考档默认值。
+      # 刻意不写 models 列表——写了就会**替换**整份 catalog。
+      anthropic:
+        apiKeyEnv: ANTHROPIC_API_KEY
+        reasoning: !!js process.env.SW_DSH_REASONING ?? 'medium'
+
+# ---------------------------------------------------------------- Agent 内核
+# agent-spine-demo 是"无执行器、无 UI"的 agent 骨架。它默认自带 bash / skill /
+# jobs 三组模型可见工具，这里逐项关掉；goals 不填即不挂载。
+- id: agent-core
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    persona: !!js process.env.SW_DSH_PERSONA ?? '你是中文社交媒体内容助手。只输出被要求的内容本身，不要寒暄、不要解释过程。'
+    # 提示词保持自洽：不注入 harness 身份，也不注入任何动态运行时上下文快照
+    includeHarnessIdentity: false
+    includeRuntimeContext: false
+    # 不读工作区 AGENTS.md/CLAUDE.md（本仓库的开发说明不该进生成提示词）
+    workspaceContext: false
+    # 关掉 skill provider 栈，连带去掉模型可见的 skill 装载工具
+    skills:
+      enabled: false
+    # 关掉模型可见的 bash 工具（本组合也根本没挂 ctx.shell 执行器）
+    toolBash: false
+    # 关掉后台任务控制工具（job_output / job_list / job_kill）
+    toolJobs: false
+
+# ---------------------------------------------------------------- 会话持久化
+# JSONL 会话日志。SDK 通过 DSH_SESSION_ROOT 注入目录（默认 data/dsh_sessions/，
+# 已在 .gitignore 的 data/ 之下）。审计与排障靠它回放，不靠 stdout。
+- id: sessions
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js process.env.DSH_SESSION_ROOT ?? './data/dsh_sessions'
+
+# 持久化后端只管存；这条策略显式选定"请求 / 工具派发 / 完成步"三个落盘检查点。
+- id: session-checkpoints
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'

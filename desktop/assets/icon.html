@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>social_workflow 工作台 app icon</title>
+    <!--
+      应用图标的**源文件**。scripts/make-icon.mjs 用 playwright 把它栅格化成
+      assets/icon.png（1024×1024，透明角），electron-builder 再从 png 自动转
+      icns / ico。
+
+      直接在浏览器里打开也能看（字体会退化成系统衬线体）：脚本会把下面 @font-face
+      里那个占位符替换成 ui/node_modules/@fontsource/caprasimo 那份 woff2 的
+      data URI。Caprasimo 是 OFL 字体，所以只在生成时读，不入库。
+
+      配色 = Organic 令牌：陶土 #c67139、奶油 #f5ead8、暖炭 #201e1d。
+      几何 = macOS Big Sur 图标网格：1024 画布里 824×824 圆角方，圆角半径 185。
+    -->
+    <style>
+      @font-face {
+        font-family: "Caprasimo";
+        src: url("__CAPRASIMO_WOFF2__") format("woff2");
+        font-weight: 400;
+        font-display: block;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+      }
+      body {
+        width: 1024px;
+        height: 1024px;
+        display: grid;
+        place-items: center;
+      }
+      .tile {
+        position: relative;
+        width: 824px;
+        height: 824px;
+        border-radius: 185px;
+        overflow: hidden;
+        background: linear-gradient(160deg, #d98a4d 0%, #c67139 46%, #a3562a 100%);
+        /* 暖炭描边：浅色背景上不至于糊成一团 */
+        box-shadow:
+          inset 0 0 0 6px rgba(32, 30, 29, 0.16),
+          inset 0 -14px 44px rgba(32, 30, 29, 0.22);
+      }
+      /* 左上角一团柔光，给陶土一点手作质感，不抢字形 */
+      .tile::before {
+        content: "";
+        position: absolute;
+        inset: -20%;
+        background: radial-gradient(
+          circle at 26% 20%,
+          rgba(245, 234, 216, 0.3) 0%,
+          rgba(245, 234, 216, 0.1) 34%,
+          rgba(245, 234, 216, 0) 62%
+        );
+      }
+      .mark {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        font-family: "Caprasimo", Georgia, "Times New Roman", serif;
+        font-size: 430px;
+        line-height: 1;
+        letter-spacing: -0.045em;
+        color: #f5ead8;
+        /* 字形下方一点点暖炭投影，压住底色 */
+        text-shadow: 0 10px 26px rgba(32, 30, 29, 0.26);
+        /* "sw" 全是 x-height 字形，字框居中时墨迹偏下偏右，按视觉中心手工配平 */
+        transform: translate(-15px, -30px);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tile"><div class="mark">sw</div></div>
+  </body>
+</html>

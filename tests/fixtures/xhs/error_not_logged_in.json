@@ -1,0 +1,5 @@
+{
+  "error": "发布失败",
+  "code": "PUBLISH_FAILED",
+  "details": "publish image content failed: 用户未登录，请先扫码登录"
+}

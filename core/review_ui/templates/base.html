@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}社媒工作流{% endblock %}</title>
+  <!-- HTMX 用于局部刷新（渐进增强）。带 SRI；即使 CDN 不可达，页面所有操作仍可用原生表单完成。 -->
+  <script src="https://unpkg.com/htmx.org@2.0.4"
+          integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
+          crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --bg: #fbfbfa; --fg: #1f2328; --muted: #6b7280; --line: #e5e7eb;
+      --card: #ffffff; --accent: #2563eb; --ok: #15803d; --warn: #b45309; --err: #b91c1c;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#16181d; --fg:#e6e8eb; --muted:#9aa3af; --line:#2b2f36;
+              --card:#1d2027; --accent:#60a5fa; --ok:#4ade80; --warn:#fbbf24; --err:#f87171; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--fg);
+           font:15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
+    header { border-bottom:1px solid var(--line); padding:12px 20px; display:flex; gap:18px;
+             align-items:center; position:sticky; top:0; background:var(--bg); z-index:5; }
+    header b { font-size:16px; }
+    header a { color:var(--fg); text-decoration:none; padding:4px 8px; border-radius:6px; }
+    header a:hover { background:var(--line); }
+    main { max-width:1080px; margin:0 auto; padding:20px; }
+    h1 { font-size:20px; margin:0 0 16px; }
+    h2 { font-size:16px; margin:22px 0 8px; }
+    table { width:100%; border-collapse:collapse; background:var(--card);
+            border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+    th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line);
+             vertical-align:top; font-size:14px; }
+    th { color:var(--muted); font-weight:600; background:color-mix(in srgb, var(--card) 92%, var(--fg)); }
+    tr:last-child td { border-bottom:none; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:8px;
+            padding:14px 16px; margin-bottom:14px; }
+    .muted { color:var(--muted); }
+    .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px;
+            border:1px solid var(--line); }
+    .s-draft,.s-reviewing { color:var(--warn); }
+    .s-approved,.s-published,.s-measured,.s-ok { color:var(--ok); }
+    .s-rejected,.s-dead_letter,.s-publish_failed,.s-banned { color:var(--err); }
+    pre { background:color-mix(in srgb, var(--card) 88%, var(--fg)); padding:10px 12px;
+          border-radius:6px; overflow:auto; font-size:13px; white-space:pre-wrap;
+          word-break:break-word; margin:0; }
+    .diff ins, .diff .add { color:var(--ok); }
+    form { margin:0; }
+    button { font:inherit; padding:6px 14px; border-radius:6px; border:1px solid var(--line);
+             background:var(--card); color:var(--fg); cursor:pointer; }
+    button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+    button.danger { color:var(--err); }
+    input[type=text], textarea { width:100%; font:inherit; padding:7px 9px; border-radius:6px;
+             border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+    textarea { min-height:140px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px; }
+    .thumb { border:1px dashed var(--line); border-radius:6px; padding:10px; text-align:center;
+             font-size:12px; color:var(--muted); aspect-ratio:3/4; display:flex;
+             flex-direction:column; justify-content:center; word-break:break-all; }
+    .thumb.filled { border-style:solid; padding:0; overflow:hidden; position:relative;
+                    background:var(--card); }
+    .thumb.filled img { width:100%; height:100%; object-fit:cover; display:block; }
+    .thumb .badge { position:absolute; left:6px; top:6px; background:rgba(0,0,0,.66); color:#fff;
+                    border-radius:4px; padding:1px 6px; font-size:11px; letter-spacing:.04em; }
+    /* 多图笔记（小红书）：横向轮播 + 滚动吸附，一屏看一张原比例卡片 */
+    .carousel { display:flex; gap:12px; overflow-x:auto; scroll-snap-type:x mandatory;
+                padding-bottom:8px; margin-bottom:6px; }
+    .carousel figure { flex:0 0 auto; scroll-snap-align:start; margin:0; width:248px; }
+    .carousel img { width:248px; aspect-ratio:3/4; object-fit:contain; display:block;
+                    border:1px solid var(--line); border-radius:8px; background:var(--card); }
+    .carousel figcaption { font-size:12px; color:var(--muted); margin-top:4px; text-align:center; }
+    .banner { padding:8px 12px; border-radius:6px; border:1px solid var(--line);
+              background:color-mix(in srgb, var(--card) 85%, var(--accent)); font-size:14px; }
+    /* 成片放行闸门：勾选前批准按钮是 disabled 的（后端还会再校验一次 watched） */
+    .watch-gate { display:flex; gap:8px; align-items:flex-start; margin-bottom:10px;
+                  padding:8px 10px; border-radius:6px; font-size:14px;
+                  border:1px solid color-mix(in srgb, var(--line) 40%, var(--warn));
+                  background:color-mix(in srgb, var(--card) 88%, var(--warn)); }
+    .watch-gate input { margin-top:4px; }
+    button[disabled] { opacity:.5; cursor:not-allowed; }
+    .stat { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px; }
+    .stat div { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+    .stat b { display:block; font-size:22px; }
+    /* 统计页：账号表格列多，宽屏之外要能横向滚，页面本身不许出横向滚动条 */
+    .scroll-x { overflow-x:auto; margin-bottom:6px; }
+    .scroll-x table { min-width:900px; }
+    .alert { border:1px solid var(--err); border-radius:8px; padding:10px 14px; margin-bottom:16px;
+             background:color-mix(in srgb, var(--card) 86%, var(--err)); }
+    .alert ul { margin:8px 0 0; padding-left:20px; }
+    tr.attention td { background:color-mix(in srgb, var(--card) 90%, var(--err)); }
+  </style>
+</head>
+<body>
+<header>
+  <b>社媒工作流</b>
+  <a href="/review">审核队列</a>
+  <a href="/accounts">账号</a>
+  <a href="/stats">统计</a>
+  <span class="muted" style="margin-left:auto">{{ env }}</span>
+</header>
+<main>
+{% block body %}{% endblock %}
+</main>
+</body>
+</html>

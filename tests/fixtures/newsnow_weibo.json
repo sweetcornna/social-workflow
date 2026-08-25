@@ -1,0 +1,33 @@
+{
+  "status": "success",
+  "id": "weibo",
+  "updatedTime": 1786800000000,
+  "items": [
+    {
+      "id": "%E5%8F%B0%E9%A3%8E%E7%99%BB%E9%99%86%E5%B9%BF%E4%B8%9C",
+      "title": "台风登陆广东沿海",
+      "url": "https://s.weibo.com/weibo?q=%23台风登陆广东沿海%23",
+      "mobileUrl": "https://m.weibo.cn/search?containerid=1",
+      "extra": {"icon": {"url": "https://simg.s.weibo.com/moter/flags/2_0.png", "scale": 1.5}}
+    },
+    {
+      "id": "2",
+      "title": "新能源车销量创新高",
+      "url": "https://s.weibo.com/weibo?q=%23新能源车销量创新高%23",
+      "mobileUrl": "https://m.weibo.cn/search?containerid=2",
+      "extra": {"info": "312 万热度"}
+    },
+    {
+      "id": "3",
+      "title": "某明星回应争议事件",
+      "url": "https://s.weibo.com/weibo?q=%23某明星回应争议事件%23",
+      "extra": {"hover": "当事人今日发布长文回应"}
+    },
+    {
+      "id": "4",
+      "title": "   ",
+      "url": "https://s.weibo.com/weibo?q=blank"
+    }
+  ],
+  "info": {"LICENCE": "MIT", "Github": "https://github.com/ourongxing/newsnow"}
+}

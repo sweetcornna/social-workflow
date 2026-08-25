@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>xhs-cover</title>
+<style>
+  /* swiss 网格风 · 封面 1242×1656（3:4）
+     严格左对齐 + 粗横线 + 单一强调色。无外链资源。 */
+  __FONT_FACE__
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden; }
+
+  body {
+    font-family: __FONT_STACK__;
+    background: __BG__;
+    color: __FG__;
+    position: relative;
+    display: flex; flex-direction: column;
+  }
+
+  /* 顶部色块：占画面上四分之一，构成第一层视觉锚点 */
+  .band {
+    height: 404px; background: __ACCENT__; color: __SURFACE__;
+    padding: 96px 96px 0; display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .band .kicker { font-size: 36px; font-weight: 700; letter-spacing: .28em; text-transform: uppercase; }
+  .band .bars { display: flex; gap: 14px; padding-bottom: 60px; }
+  .band .bars i { display: block; width: 96px; height: 16px; background: __SURFACE__; opacity: .9; }
+  .band .bars i:nth-child(2) { opacity: .55; }
+  .band .bars i:nth-child(3) { opacity: .3; }
+
+  .stage { flex: 1; padding: 92px 96px 0; display: flex; flex-direction: column; }
+
+  .headline {
+    font-size: __HEADLINE_SIZE__px; line-height: 1.16; font-weight: 800; letter-spacing: -.03em;
+    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  .subline {
+    margin-top: 52px; font-size: 38px; line-height: 1.5; color: __MUTED__; max-width: 900px;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  .foot {
+    margin: 0 96px 84px; padding-top: 34px; border-top: 8px solid __FG__;
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 32px; font-weight: 600; letter-spacing: .06em;
+  }
+  .foot .page { font-variant-numeric: tabular-nums; color: __ACCENT__; }
+</style>
+</head>
+<body>
+  <div class="band">
+    <div class="kicker">__KICKER__</div>
+    <div class="bars"><i></i><i></i><i></i></div>
+  </div>
+  <div class="stage">
+    <div class="headline">__HEADLINE__</div>
+    <div class="subline">__SUBLINE__</div>
+  </div>
+  <div class="foot">
+    <span class="mark">__WATERMARK__</span>
+    <span class="page">__PAGE_NO__</span>
+  </div>
+</body>
+</html>

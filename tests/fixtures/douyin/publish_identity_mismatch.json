@@ -1,0 +1,6 @@
+{
+  "ok": false,
+  "state": "identity_mismatch",
+  "detail": "当前浏览器登录的是 别***号，但账号 douyin-demo-01 期望 通***所——已中止，防发错号。",
+  "screenshot_path": "data/douyin/screenshots/douyin-demo-01/20260816T120000000-identity-mismatch.png"
+}

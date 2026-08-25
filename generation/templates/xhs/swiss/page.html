@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>xhs-page</title>
+<style>
+  /* swiss 网格风 · 内页 1242×1656（3:4） */
+  __FONT_FACE__
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden; }
+
+  body {
+    font-family: __FONT_STACK__;
+    background: __BG__;
+    color: __FG__;
+    position: relative;
+    padding: 96px 96px 84px;
+    display: flex; flex-direction: column;
+  }
+
+  .top { display: flex; align-items: flex-start; gap: 34px; border-top: 16px solid __ACCENT__; padding-top: 40px; }
+  .top .index {
+    font-size: 78px; line-height: .92; font-weight: 800; color: __ACCENT__;
+    font-variant-numeric: tabular-nums; flex: 0 0 auto;
+  }
+  .top .headline {
+    flex: 1;
+    font-size: __HEADLINE_SIZE__px; line-height: 1.2; font-weight: 800; letter-spacing: -.025em;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  .bullets { flex: 1; list-style: none; padding-top: 76px; }
+  .bullet {
+    display: flex; gap: 28px; align-items: flex-start;
+    font-size: __BULLET_SIZE__px; line-height: 1.46; font-weight: 500;
+    padding-bottom: 34px; margin-bottom: 34px; border-bottom: 3px solid __LINE__;
+  }
+  .bullet:last-child { border-bottom: none; }
+  .bullet .marker {
+    flex: 0 0 auto; width: 30px; height: 30px; border: 8px solid __ACCENT__; border-radius: 50%;
+    transform: translateY(10px);
+  }
+  .bullet span { flex: 1; }
+
+  .footnote {
+    background: __SURFACE__; padding: 30px 34px; font-size: 32px; line-height: 1.45; color: __MUTED__;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  .foot {
+    margin-top: 40px; padding-top: 30px; border-top: 8px solid __FG__;
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 32px; font-weight: 600; letter-spacing: .06em;
+  }
+  .foot .page { font-variant-numeric: tabular-nums; color: __ACCENT__; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="index">__INDEX__</div>
+    <div class="headline">__HEADLINE__</div>
+  </div>
+  <ul class="bullets">__BULLETS__</ul>
+  <div class="footnote">__FOOTNOTE__</div>
+  <div class="foot">
+    <span class="mark">__WATERMARK__</span>
+    <span class="page">__PAGE_NO__</span>
+  </div>
+</body>
+</html>

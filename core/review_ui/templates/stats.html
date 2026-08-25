@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}统计{% endblock %}
+{% macro num(v) %}{% if v is none %}<span class="muted">—</span>{% else %}{{ v }}{% endif %}{% endmacro %}
+{% block body %}
+<h1>统计 · 近 {{ dash.window_days }} 天</h1>
+
+{% if dash.attention %}
+<div class="alert">
+  <b>{{ dash.attention | length }} 个账号需要人处理</b>
+  <ul>
+    {% for row in dash.attention %}
+    <li>
+      <span class="s-{{ row.status }}"><b>{{ row.status }}</b></span>
+      {{ row.name }}（<code>{{ row.account_id }}</code> · {{ row.platform }}）
+      {% if row.suspended %}— 已挂起 {{ row.suspended }} 条排期{% endif %}
+      {% if row.status == 'needs_relogin' %}
+        → <a href="/accounts/{{ row.account_id }}/login">去扫码续期</a>
+      {% else %}
+        → 人工终态，需先停掉该账号任务再申诉
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<h2>总览</h2>
+<div class="stat">
+  <div><span class="muted">已发布</span><b>{{ totals.published }}</b></div>
+  <div><span class="muted">失败 / 重试中</span><b class="{{ 's-publish_failed' if totals.failed else '' }}">{{ totals.failed }}</b></div>
+  <div><span class="muted">死信</span><b class="{{ 's-dead_letter' if totals.dead_letter else '' }}">{{ totals.dead_letter }}</b></div>
+  <div><span class="muted">待审核</span><b>{{ totals.pending_review }}</b></div>
+  <div><span class="muted">已排期</span><b>{{ totals.scheduled }}</b></div>
+  <div><span class="muted">24h 快照</span><b>{{ totals.snapshots_24h }}</b></div>
+  <div><span class="muted">7d 快照</span><b>{{ totals.snapshots_7d }}</b></div>
+</div>
+
+<h2>各账号</h2>
+<div class="scroll-x">
+<table>
+  <thead>
+    <tr>
+      <th>账号</th><th>平台</th><th>状态</th>
+      <th>发布</th><th>失败</th><th>死信</th>
+      <th>待审</th><th>排期</th>
+      <th>今日配额</th>
+      {% for f in metric_fields %}<th>{{ f }}</th>{% endfor %}
+      <th>成本(tokens)</th><th>复盘</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in dash.accounts %}
+    <tr class="{{ 'attention' if row.needs_attention else '' }}">
+      <td>
+        <b>{{ row.name }}</b><br>
+        <span class="muted" style="font-size:12px">{{ row.account_id }}</span><br>
+        <span class="muted" style="font-size:12px">
+          窗口 {{ row.windows }} · 间隔 {{ row.min_interval_minutes }}m · 目标 {{ row.daily_target }}/天
+        </span>
+      </td>
+      <td>{{ row.platform }}</td>
+      <td>
+        <span class="pill s-{{ row.status }}">{{ row.status }}</span>
+        {% if row.status == 'needs_relogin' %}<br><a href="/accounts/{{ row.account_id }}/login">扫码</a>{% endif %}
+      </td>
+      <td>{{ row.published }}</td>
+      <td class="{{ 's-publish_failed' if row.failed else '' }}">{{ row.failed }}</td>
+      <td class="{{ 's-dead_letter' if row.dead_letter else '' }}">{{ row.dead_letter }}</td>
+      <td>{{ row.pending_review }}</td>
+      <td>{{ row.scheduled }}{% if row.suspended %} <span class="muted">(+{{ row.suspended }} 挂起)</span>{% endif %}</td>
+      <td>
+        {{ row.used_today }}/{{ row.daily_limit }}
+        {% if row.last_published_at %}<br><span class="muted" style="font-size:12px">上次 {{ row.last_published_at.strftime('%m-%d %H:%M') }}Z</span>{% endif %}
+      </td>
+      {% for f in metric_fields %}<td>{{ num(row.metric(f)) }}</td>{% endfor %}
+      <td>{{ '%g'|format(row.cost.get('tokens', 0.0)) }}</td>
+      <td class="muted" style="font-size:12px">{{ row.insights_at[:16] or '—' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="16" class="muted">
+      DB 里没有账号。先跑 <code>uv run python -m core.accounts sync</code>
+      把 accounts.yaml 同步进来。
+    </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="font-size:13px">
+  指标取每条内容<b>最新一张</b>快照后求和；<code>—</code> 表示<b>没有数据</b>而不是 0
+  （小红书不对外暴露阅读量）。今日配额按 UTC 日切，来自 <code>publish_records</code>。
+</p>
+
+<h2>今日成本（{{ dash.day }} UTC）</h2>
+<table>
+  <thead><tr><th>类型</th><th>已用</th><th>上限</th><th>剩余</th></tr></thead>
+  <tbody>
+  {% for kind, v in dash.budget.items() %}
+    <tr>
+      <td>{{ kind }}</td>
+      <td>{{ '%g'|format(v.used) }}</td>
+      <td>{{ '%g'|format(v.limit) }}</td>
+      <td class="{{ 's-dead_letter' if v.remaining <= 0 else '' }}">{{ '%g'|format(v.remaining) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if dash.unattributed_cost %}
+<p class="muted" style="font-size:13px">
+  未归属到账号的近 {{ dash.window_days }} 天成本：
+  {% for kind, amount in dash.unattributed_cost.items() %}{{ kind }} {{ '%g'|format(amount) }}{% if not loop.last %} · {% endif %}{% endfor %}
+  （复盘 Agent、手工脚本等不带 <code>account_id</code> 标签的流水）
+</p>
+{% endif %}
+
+<h2>内容状态分布</h2>
+<div class="stat">
+  {% for status, count in dash.content_counts %}
+  <div><span class="muted s-{{ status }}">{{ status }}</span><b>{{ count }}</b></div>
+  {% else %}
+  <div class="muted">暂无内容</div>
+  {% endfor %}
+</div>
+
+<h2>发布记录</h2>
+<div class="stat">
+  {% for phase, count in dash.publish_counts %}
+  <div><span class="muted">{{ phase }}</span><b>{{ count }}</b></div>
+  {% else %}
+  <div class="muted">暂无发布记录</div>
+  {% endfor %}
+  <div><span class="muted">累计快照</span><b>{{ dash.snapshot_count }}</b></div>
+  <div><span class="muted">审计日志</span><b>{{ dash.review_log_count }}</b></div>
+</div>
+
+{% if dash.dead_letters %}
+<h2>最近的死信</h2>
+<table>
+  <thead><tr><th>内容</th><th>账号</th><th>时间</th><th>原因</th></tr></thead>
+  <tbody>
+  {% for d in dash.dead_letters %}
+    <tr>
+      <td><a href="/review/{{ d.item_id }}">{{ d.title }}</a></td>
+      <td>{{ d.account_id }}</td>
+      <td class="muted">{{ d.at.strftime('%m-%d %H:%M') }}Z</td>
+      <td class="muted" style="font-size:13px">{{ d.reason or '—' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="muted" style="font-size:13px">
+  死信是<b>终态</b>。确认平台侧确实没发出去后，复制内容重新走一遍审核流程；
+  不要手工改状态。
+</p>
+{% endif %}
+{% endblock %}

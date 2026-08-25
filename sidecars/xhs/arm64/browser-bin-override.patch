@@ -1,0 +1,53 @@
+diff --git a/browser/browser.go b/browser/browser.go
+index 59bbe39..54b824a 100644
+--- a/browser/browser.go
++++ b/browser/browser.go
+@@ -2,6 +2,7 @@ package browser
+ 
+ import (
+ 	"fmt"
++	"os"
+ 	"net/url"
+ 	"strings"
+ 
+@@ -64,13 +65,20 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
+ 
+ 	opts := []headless_browser.Option{
+ 		headless_browser.WithHeadless(headless),
+-		// 用内置浏览器的默认配置，不强制 UA。
+-		headless_browser.WithFingerprint(""), // 空 = 按运行 OS 自动：Linux→windows，mac→macos
+ 		headless_browser.WithStealthJS(false),
+ 		headless_browser.WithLanguage("zh-CN"), // 面向小红书
+-		// 品牌报 Chrome。
+-		// 注：hardware-concurrency 不设，交给 seed 派生。
+-		headless_browser.WithExtraFlags(map[string]string{"fingerprint-brand": "Chrome"}),
++	}
++	// XHS_BROWSER_BIN 指定外部 stock 浏览器时跳过指纹选项：
++	// ① --fingerprint-platform 等 flag 只有上游魔改浏览器认识，stock Chromium 151 实测
++	//    会让页面加载崩掉（Inspected target navigated or closed）；
++	// ② 指纹 UA 覆盖依赖魔改补丁填 platform 字段，stock 浏览器上是半套假数据。
++	if strings.TrimSpace(os.Getenv("XHS_BROWSER_BIN")) == "" {
++		opts = append(opts,
++			// 用内置浏览器的默认配置，不强制 UA。
++			headless_browser.WithFingerprint(""), // 空 = 按运行 OS 自动：Linux→windows，mac→macos
++			// 品牌报 Chrome。注：hardware-concurrency 不设，交给 seed 派生。
++			headless_browser.WithExtraFlags(map[string]string{"fingerprint-brand": "Chrome"}),
++		)
+ 	}
+ 	opts = append(opts, headless_browser.WithChromeBinPath(binPath))
+ 
+diff --git a/browser/browser_download.go b/browser/browser_download.go
+index 1d9173c..f6b4036 100644
+--- a/browser/browser_download.go
++++ b/browser/browser_download.go
+@@ -69,6 +69,10 @@ func browserCacheDir() (string, error) {
+ // EnsureBrowser 确保本地存在内置浏览器二进制，返回其路径。
+ // 已缓存则直接返回；否则下载 → 校验 SHA256 → 解压。当前平台无预编译二进制时返回 error。
+ func EnsureBrowser() (string, error) {
++	// arm64 等无预编译内置浏览器的平台：允许用环境变量显式指定外部浏览器二进制。
++	if bin := strings.TrimSpace(os.Getenv("XHS_BROWSER_BIN")); bin != "" {
++		return bin, nil
++	}
+ 	asset, binName, ok := platformAsset()
+ 	if !ok {
+ 		return "", fmt.Errorf("当前平台 %s/%s 无预编译浏览器，暂不支持", runtime.GOOS, runtime.GOARCH)

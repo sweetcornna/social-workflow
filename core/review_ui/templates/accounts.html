@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}账号{% endblock %}
+{% block body %}
+<h1>账号（{{ accounts|length }}）</h1>
+{% if not accounts %}
+<div class="card muted">尚无账号。<code>POST /dev/seed</code> 可注入一个 demo 账号。</div>
+{% else %}
+<table>
+  <thead><tr><th>ID</th><th>名称</th><th>平台</th><th>状态</th><th>日上限</th>
+             <th>sidecar</th><th>profile</th><th></th></tr></thead>
+  <tbody>
+  {% for a in accounts %}
+    <tr>
+      <td>{{ a.id }}</td>
+      <td>{{ a.name }}</td>
+      <td>{{ a.platform }}</td>
+      <td class="s-{{ a.status }}">{{ a.status }}</td>
+      <td>{{ a.daily_limit }}</td>
+      <td class="muted">{{ a.sidecar_endpoint or '—' }}</td>
+      <td class="muted">{{ a.profile_dir or '—' }}</td>
+      <td><a href="/accounts/{{ a.id }}/login">登录 / 续期</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

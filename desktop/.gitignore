@@ -1,0 +1,3 @@
+node_modules/
+# electron-builder 产物。仓库根的 .gitignore 里 `dist/` 已经覆盖了，这里写明白一点
+dist/

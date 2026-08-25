@@ -1,0 +1,58 @@
+# TrendRadar sidecar 配置（示例）。
+#
+#     mkdir -p sidecars/trendradar/config
+#     cp sidecars/trendradar/config.example.yaml       sidecars/trendradar/config/config.yaml
+#     cp sidecars/trendradar/frequency_words.example.txt sidecars/trendradar/config/frequency_words.txt
+#     docker compose --profile sourcing up -d trendradar
+#
+# 上游 entrypoint.sh 硬性校验 config.yaml 与 frequency_words.txt 都存在，缺一直接 exit 1。
+# 完整字段见上游 https://github.com/sansan0/TrendRadar 的 config/config.yaml。
+# 这里只保留本项目需要的最小集：**只抓取、不通知、不做 AI 摘要**
+# （通知走 core/notify.py，摘要走我们自己的 Claude 链，避免两套配置两套账单）。
+
+app:
+  version_check_url: ""
+  show_version_update: false
+
+crawler:
+  # TrendRadar 自己不爬平台，它调 newsnow 的公开 API。
+  # 自部署了 newsnow 的话改成自己的实例，别去打公共实例
+  api_url: "https://newsnow.busiyi.world/api/s"
+  request_interval: 1000
+  use_proxy: false
+  default_proxy: ""
+
+report:
+  # daily = 当天全量；incremental = 只报新增；current = 本次抓取
+  mode: "daily"
+  rank_threshold: 5
+
+notification:
+  # 全关。核心原因见上：通知是 core 的职责
+  enable_notification: false
+
+# 默认监控的 11 个平台（上游默认值）。id 取值来自 newsnow
+platforms:
+  sources:
+    - id: "toutiao"
+      name: "今日头条"
+    - id: "baidu"
+      name: "百度热搜"
+    - id: "wallstreetcn-hot"
+      name: "华尔街见闻"
+    - id: "thepaper"
+      name: "澎湃新闻"
+    - id: "bilibili-hot-search"
+      name: "bilibili 热搜"
+    - id: "cls-hot"
+      name: "财联社热门"
+    - id: "ifeng"
+      name: "凤凰网"
+    - id: "tieba"
+      name: "贴吧"
+    - id: "weibo"
+      name: "微博"
+    - id: "douyin"
+      name: "抖音"
+    - id: "zhihu"
+      name: "知乎"

@@ -1,0 +1,7 @@
+{
+  "success": true,
+  "data": {
+    "is_logged_in": false
+  },
+  "message": "检查登录状态成功"
+}

@@ -1,0 +1,150 @@
+# social_workflow 单机部署。
+#
+# 小红书发布 sidecar 是"一账号一容器"，由脚本按 accounts.yaml 生成到独立文件：
+#     uv run python scripts/gen_xhs_sidecars.py
+#     docker compose -f docker-compose.yml -f docker-compose.xhs.yml up
+#
+# 带 profile 的服务默认不启动，按需：
+#     docker compose --profile video    up  # MoneyPrinterTurbo（视频合成，P3）
+#     docker compose --profile xhs      up  # XHS-Downloader（小红书采集，P2）
+#     docker compose --profile sourcing up  # TrendRadar（热榜聚合，P4）
+#
+# 注意：抖音发布器（Patchright 有头浏览器）**不在这里**，也**永远不会**加进来——
+# 抖音会检测 headless，容器里没有图形界面，跑不了真人扫码与短信二次验证。
+# 它是宿主机上的常驻进程：
+#     uv sync --extra douyin
+#     uv run python -m publishers.douyin serve --port 8710
+# core 通过 DOUYIN_SERVICE_URL 调它（容器里要写 host.docker.internal）。
+# 见 publishers/douyin/README.md 与 docs/OPS.md 第 2 节。
+
+services:
+  core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sw-core
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      SW_DATABASE_URL: sqlite:////app/data/social_workflow.db
+      SW_ENV: ${SW_ENV:-dev}
+      # 容器内访问宿主机上的抖音上传器（它不在本 compose 里，见文件头说明）
+      DOUYIN_SERVICE_URL: ${DOUYIN_SERVICE_URL:-http://host.docker.internal:8710}
+      MPT_BASE_URL: ${MPT_BASE_URL:-http://mpt:8080}
+      XHS_DOWNLOADER_BASE_URL: ${XHS_DOWNLOADER_BASE_URL:-http://xhs-downloader:5556}
+      # 只在 --profile sourcing 起了 trendradar 时才有意义；没起就是一个拉不通的地址，
+      # tick_sourcing 会把它记进 warnings 而不是报错
+      TRENDRADAR_BASE_URL: ${TRENDRADAR_BASE_URL:-http://trendradar:8080}
+    # 凭据只走 .env，不写进 image，也不入库
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - core_data:/app/data
+      # **可写**（P10 起）：工作台的「添加账号 / 编辑账号」会回写台账，再从台账同步进 DB。
+      # 挂成 :ro 的话建号会在写文件那一步失败（台账与 DB 也就永远对不齐）。
+      # 宿主机上这个文件要让容器里的 appuser(uid 10001) 写得动：
+      #   sudo chown 10001 accounts.yaml
+      - ./accounts.yaml:/app/accounts.yaml
+      # 想让工作台直接起停小红书 sidecar（SW_SIDECAR_DRIVER=docker）时，还要：
+      #   1) 把宿主机 docker socket 挂进来（下面这行）；
+      #   2) 镜像里装 docker CLI（本 Dockerfile 刻意没装：容器里塞一个能控宿主机 docker
+      #      的客户端等于给了它宿主机 root，不该是默认形态）。
+      # 更简单也更常见的做法：**core 直接跑在宿主机上**（uvicorn），容器只留 sidecar。
+      # - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - social_workflow
+
+  # MoneyPrinterTurbo（MIT）：只用其视频合成 HTTP API，脚本由 core 生成后灌入
+  # （video_script / video_terms），**不用它内置的 LLM**。见 sidecars/mpt/README.md。
+  #
+  # 起之前必须先准备配置（素材源 key 在里面，该文件在 .gitignore 里）：
+  #     cp sidecars/mpt/config.example.toml sidecars/mpt/config.toml
+  mpt:
+    image: ${MPT_IMAGE:-ghcr.io/harry0703/moneyprinterturbo:latest}
+    container_name: sw-mpt
+    profiles: ["video"]
+    restart: unless-stopped
+    # 镜像自带的 CMD 是 Streamlit WebUI（8501）。API 服务必须显式覆盖 command，
+    # 否则 8080 上什么都没有。上游 docker-compose.release.yml 就是这么做的。
+    command: ["python3", "main.py"]
+    ports:
+      # 只绑回环：MPT 默认不鉴权（上游把 verify_token 注释掉了），暴露到 0.0.0.0
+      # 等于把渲染队列开放给同网段。容器间访问走服务名 http://mpt:8080，不需要这条；
+      # 它只是给"core 跑在宿主机上"的开发形态用的。
+      - "127.0.0.1:${MPT_HOST_PORT:-8080}:8080"
+    volumes:
+      # 素材源 key / 字幕后端 / 队列上限都在这份 config 里（不是环境变量）。
+      # 上游按**文件**bind mount，路径必须精确到 config.toml。
+      - ./sidecars/mpt/config.toml:/MoneyPrinterTurbo/config.toml
+      # 成片与中间产物。core 通过 GET /api/v1/download/... 取，不直接读这个卷
+      - mpt_storage:/MoneyPrinterTurbo/storage
+    networks:
+      - social_workflow
+
+  # XHS-Downloader（**GPL-3.0**）：只作独立进程，core 通过 HTTP 调用，绝不 import 其代码。
+  xhs-downloader:
+    image: ${XHS_DOWNLOADER_IMAGE:-joeanamier/xhs-downloader:latest}
+    container_name: sw-xhs-downloader
+    profiles: ["xhs"]
+    restart: unless-stopped
+    ports:
+      # 只绑回环：这个采集服务在本仓侧**没有任何鉴权**——对比每账号 sidecar 各有一个
+      # AUTH_TOKEN，它连一个 token 变量都不存在（`.env.example` 里只有 BASE_URL）。
+      # 暴露到 0.0.0.0 等于把两样东西一起开放给同网段：用本机身份去抓小红书的能力，
+      # 以及 xhs_downloader_data 卷里已经抓下来的东西。生产是合租机器（docs/RISKS.md §8.2），
+      # 同机还跑着与本项目无关的同租户容器，它们经 docker 网关就够得着 0.0.0.0 的发布口。
+      # 容器间访问走服务名 http://xhs-downloader:5556，不经这条；它只给"core 跑在宿主机上"的
+      # 开发形态用。改这里就要同步 .env.example 的 XHS_DOWNLOADER_BASE_URL 端口。
+      - "127.0.0.1:${XHS_DOWNLOADER_HOST_PORT:-5556}:5556"
+    volumes:
+      - xhs_downloader_data:/app/Volume
+    networks:
+      - social_workflow
+
+  # TrendRadar（**GPL-3.0**，P4）：热榜聚合。同样只作独立进程。
+  #
+  # 注意它**没有 REST API**：8080 上是 `python -m http.server` 把 /app/output 挂出来，
+  # core 读的是它产出的 output/news/{YYYY-MM-DD}.db（SQLite）。
+  # 详见 sidecars/trendradar/README.md 与 sourcing/trendradar.py。
+  #
+  # 起之前必须先准备两个配置文件（缺任一上游 entrypoint.sh 直接 exit 1）：
+  #     mkdir -p sidecars/trendradar/config
+  #     cp sidecars/trendradar/config.example.yaml         sidecars/trendradar/config/config.yaml
+  #     cp sidecars/trendradar/frequency_words.example.txt sidecars/trendradar/config/frequency_words.txt
+  trendradar:
+    image: ${TRENDRADAR_IMAGE:-wantcat/trendradar:latest}
+    container_name: sw-trendradar
+    profiles: ["sourcing"]
+    restart: unless-stopped
+    environment:
+      # 决定 output/ 里的日期目录名，必须和 core 侧算日期的口径一致
+      TZ: ${TZ:-Asia/Shanghai}
+      WEBSERVER_PORT: "8080"
+      RUN_MODE: cron
+      CRON_SCHEDULE: ${TRENDRADAR_CRON:-*/30 * * * *}
+      # 启动就抓一次，否则第一个 30 分钟里 output/ 是空的，core 只能吃 404
+      IMMEDIATE_RUN: "true"
+    ports:
+      # 只绑回环：静态文件服务无鉴权，暴露到 0.0.0.0 等于把 output/ 开放给同网段。
+      # 容器间访问走服务名 http://trendradar:8080，不需要这条
+      - "127.0.0.1:${TRENDRADAR_HOST_PORT:-8081}:8080"
+    volumes:
+      # 上游按目录读，config.yaml 与 frequency_words.txt 都在里面
+      - ./sidecars/trendradar/config:/app/config:ro
+      - trendradar_output:/app/output
+    networks:
+      - social_workflow
+
+volumes:
+  core_data: {}
+  mpt_storage: {}
+  xhs_downloader_data: {}
+  trendradar_output: {}
+
+networks:
+  social_workflow:
+    name: social_workflow

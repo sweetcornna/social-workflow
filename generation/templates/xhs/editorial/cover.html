@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>xhs-cover</title>
+<style>
+  /* editorial 杂志风 · 封面 1242×1656（3:4）
+     无外链资源：字体走系统栈或 data: URI 内嵌，图片零外链，截图时不需要联网。
+     变量由 generation/xhs_cards.py 做字符串替换后注入。 */
+  __FONT_FACE__
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden; }
+
+  body {
+    font-family: __FONT_STACK__;
+    background: __BG__;
+    color: __FG__;
+    position: relative;
+    padding: 130px 104px 118px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* 细网格纹理，避免大面积纯色显得廉价 */
+  .grain {
+    position: absolute; inset: 0; opacity: .055; pointer-events: none;
+    background-image:
+      repeating-linear-gradient(0deg, __FG__ 0 1px, transparent 1px 44px),
+      repeating-linear-gradient(90deg, __FG__ 0 1px, transparent 1px 44px);
+  }
+
+  .kicker {
+    position: relative;
+    font-size: 34px; letter-spacing: .34em; text-transform: uppercase;
+    color: __ACCENT__; font-weight: 600;
+  }
+
+  .hairline { position: relative; height: 2px; background: __FG__; opacity: .28; margin: 34px 0 0; }
+
+  .stage { position: relative; flex: 1; display: flex; flex-direction: column; justify-content: center; }
+
+  .headline {
+    font-size: __HEADLINE_SIZE__px;
+    line-height: 1.22;
+    font-weight: 700;
+    letter-spacing: -.015em;
+    /* 兜底：文案已在 Python 侧截断，这里防极端情况溢出 */
+    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  .rule { width: 168px; height: 10px; background: __ACCENT__; margin-top: 52px; }
+
+  .subline {
+    margin-top: 44px; font-size: 38px; line-height: 1.55; color: __MUTED__;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  .foot {
+    position: relative; display: flex; justify-content: space-between; align-items: flex-end;
+    font-size: 30px; letter-spacing: .1em; color: __MUTED__;
+  }
+  .foot .page { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+  <div class="grain"></div>
+  <div class="kicker">__KICKER__</div>
+  <div class="hairline"></div>
+  <div class="stage">
+    <div class="headline">__HEADLINE__</div>
+    <div class="rule"></div>
+    <div class="subline">__SUBLINE__</div>
+  </div>
+  <div class="foot">
+    <span class="mark">__WATERMARK__</span>
+    <span class="page">__PAGE_NO__</span>
+  </div>
+</body>
+</html>

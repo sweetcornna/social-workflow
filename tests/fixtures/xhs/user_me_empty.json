@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "data": {
+    "data": {
+      "userBasicInfo": {
+        "nickname": "通勤研究所"
+      },
+      "interactions": [],
+      "feeds": []
+    }
+  },
+  "message": "获取我的主页成功"
+}

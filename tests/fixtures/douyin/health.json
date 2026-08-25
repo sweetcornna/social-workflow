@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "state": "ok",
+  "service": "douyin-uploader",
+  "version": "0.1.0",
+  "channel": "chrome",
+  "headless": false,
+  "profile_root": "profiles/douyin",
+  "screenshot_root": "data/douyin/screenshots",
+  "launched_accounts": [
+    "douyin-demo-01"
+  ],
+  "busy": false,
+  "time": "2026-08-16T12:00:00+00:00"
+}

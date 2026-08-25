@@ -1,0 +1,4 @@
+{
+  "errcode": 40164,
+  "errmsg": "invalid ip 203.0.113.42 ipv6 ::ffff:203.0.113.42, not in whitelist rid: 68a1f2c3-1a2b3c4d-5e6f7a8b"
+}

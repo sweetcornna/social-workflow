@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <title>设置 core 地址</title>
+    <style>
+      /* Organic 色板：陶土 / 奶油 / 暖炭，跟工作台一套 */
+      :root {
+        --clay: #c67139;
+        --cream: #f5ead8;
+        --charcoal: #201e1d;
+        --bg: var(--cream);
+        --fg: var(--charcoal);
+        --muted: #6f6357;
+        --line: #d9c9ae;
+        --field: #fffaf1;
+        --danger: #a6402a;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: var(--charcoal);
+          --fg: #f0e6d6;
+          --muted: #a2968a;
+          --line: #3b3532;
+          --field: #2a2624;
+          --danger: #e5967f;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 20px 22px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 13px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        user-select: none;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+      p.hint {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      input {
+        width: 100%;
+        padding: 9px 11px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--field);
+        color: var(--fg);
+        font: inherit;
+        user-select: text;
+      }
+      input:focus {
+        outline: 2px solid var(--clay);
+        outline-offset: 1px;
+        border-color: var(--clay);
+      }
+      .meta {
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--muted);
+        word-break: break-all;
+      }
+      .meta code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      .warn {
+        margin-top: 10px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .error {
+        margin-top: 10px;
+        color: var(--danger);
+        font-size: 12px;
+        min-height: 18px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        margin-top: 16px;
+      }
+      button {
+        padding: 8px 16px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--fg);
+        font: inherit;
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--clay);
+        border-color: var(--clay);
+        color: #fff8ec;
+        font-weight: 600;
+      }
+      button:focus-visible {
+        outline: 2px solid var(--clay);
+        outline-offset: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>设置 core 地址</h1>
+    <p class="hint">桌面版自己不跑 core，数据面全部反代到这个地址。改完会重新加载工作台。</p>
+
+    <label for="origin">core 地址（scheme://host:port）</label>
+    <input id="origin" type="text" spellcheck="false" placeholder="http://127.0.0.1:18000" />
+
+    <div id="env" class="warn" hidden></div>
+    <div class="meta">
+      当前生效：<code id="effective">—</code><br />
+      配置文件：<code id="configFile">—</code>
+    </div>
+    <div id="error" class="error"></div>
+
+    <div class="row">
+      <button id="cancel" type="button">取消</button>
+      <button id="save" type="button" class="primary">保存并重载</button>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const input = $("origin");
+
+      async function init() {
+        const s = await window.swPrompt.state();
+        if (!s) return;
+        input.value = s.stored || s.effective || "";
+        $("effective").textContent = s.effective;
+        $("configFile").textContent = s.configFile;
+        if (s.envOverride) {
+          const box = $("env");
+          box.hidden = false;
+          box.textContent =
+            "注意：环境变量 SW_CORE_ORIGIN=" +
+            s.envOverride +
+            " 优先级最高，这里保存的地址要等它清掉才会生效。";
+        }
+        input.focus();
+        input.select();
+      }
+
+      async function save() {
+        $("error").textContent = "";
+        const r = await window.swPrompt.save(input.value);
+        if (r && !r.ok) $("error").textContent = r.message || "保存失败";
+      }
+
+      $("save").addEventListener("click", save);
+      $("cancel").addEventListener("click", () => window.swPrompt.cancel());
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") save();
+        if (e.key === "Escape") window.swPrompt.cancel();
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") window.swPrompt.cancel();
+      });
+
+      init();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "list": [
+    {
+      "ref_date": "2026-08-13",
+      "user_source": 0,
+      "new_user": 12,
+      "cancel_user": 3
+    },
+    {
+      "ref_date": "2026-08-14",
+      "user_source": 30,
+      "new_user": 25,
+      "cancel_user": 4
+    }
+  ]
+}

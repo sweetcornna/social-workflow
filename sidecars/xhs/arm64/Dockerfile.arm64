@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1.6
+# arm64 本地构建：上游只发 amd64（Go 写死 GOARCH=amd64，内置浏览器 CDN 无 linux-arm64）。
+# 差异：① Go 按本机架构构建；② 浏览器用 Debian 仓库的 arm64 Chromium，
+#      经 XHS_BROWSER_BIN 显式传入（配套 browser/browser_download.go 的 env 覆盖补丁）。
+#      stock Chromium 会忽略上游指纹 flag——不引入也不保留任何反检测能力。
+
+FROM golang:1.24 AS builder
+WORKDIR /src
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOSUMDB=sum.golang.google.cn
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.version=${VERSION}" -o /out/app .
+
+FROM debian:bookworm-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl tini tzdata chromium chromium-sandbox \
+    fonts-liberation fonts-noto-color-emoji fonts-unifont fonts-freefont-ttf fonts-wqy-zenhei \
+    && rm -rf /var/lib/apt/lists/*
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+RUN mkdir -p /app/data/home /app/data/config /app/images && chmod -R 777 /app/data /app/images
+ENV XDG_CACHE_HOME=/app/cache
+ENV XHS_BROWSER_BIN=/usr/bin/chromium
+ENV CHROMIUM_FLAGS="--no-sandbox"
+COPY --from=builder /out/app .
+ENV HOME=/app/data/home
+ENV XDG_CONFIG_HOME=/app/data/config
+EXPOSE 18060
+ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
+CMD ["./app"]

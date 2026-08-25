@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>cover</title>
+<style>
+  /* 封面模板：无外链资源（字体/图片都不外链），Playwright 截图时不需要联网。
+     变量由 generation/cover.py 做字符串替换后注入。 */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: __WIDTH__px;
+    height: __HEIGHT__px;
+    overflow: hidden;
+  }
+
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    /* 系统中文字体栈：优先思源/苹方/微软雅黑，避免下载字体 */
+    font-family: "PingFang SC", "Hiragino Sans GB", "Source Han Sans SC",
+                 "Noto Sans CJK SC", "Microsoft YaHei", "Heiti SC", sans-serif;
+    background: __BG__;
+    color: __FG__;
+    position: relative;
+  }
+
+  /* 斜向纹理，让纯色背景不至于太空。有生图底图时让位给照片 */
+  .texture {
+    position: absolute;
+    inset: 0;
+    display: __TEXTURE_DISPLAY__;
+    opacity: .10;
+    background-image: repeating-linear-gradient(
+      135deg,
+      __FG__ 0 1px,
+      transparent 1px 14px
+    );
+  }
+
+  /* 生图底图（P11）。图以 data: URI 内嵌，模板仍然自包含、截图时不联网。
+     `cover` = 等比放大后居中裁切，所以**不管模型返回什么尺寸**，
+     截出来都是精确的 __WIDTH__×__HEIGHT__ —— 这正是"size 参数不可信"的解法。 */
+  .photo {
+    position: absolute;
+    inset: 0;
+    display: __PHOTO_DISPLAY__;
+    background-image: url("__PHOTO__");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+
+  /* 压暗层：照片亮度不可控，没有它标题会在浅色照片上糊成一片 */
+  .scrim {
+    position: absolute;
+    inset: 0;
+    display: __PHOTO_DISPLAY__;
+    background: linear-gradient(
+      100deg,
+      __BG__ 0%,
+      color-mix(in srgb, __BG__ 82%, transparent) 42%,
+      color-mix(in srgb, __BG__ 38%, transparent) 100%
+    );
+  }
+
+  .accent {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 10px;
+    background: __ACCENT__;
+  }
+
+  .inner {
+    position: relative;
+    padding: 0 __PAD__px 0 calc(__PAD__px + 10px);
+    width: 100%;
+  }
+
+  .kicker {
+    font-size: __KICKER_SIZE__px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    opacity: .72;
+    margin-bottom: __GAP__px;
+    font-weight: 500;
+  }
+
+  .title {
+    font-size: __TITLE_SIZE__px;
+    line-height: 1.28;
+    font-weight: 700;
+    letter-spacing: -.01em;
+    /* 最多 3 行，超出省略——封面文案本来就限 14 字，这里是兜底 */
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .rule {
+    width: __RULE__px;
+    height: 5px;
+    background: __ACCENT__;
+    margin-top: __GAP__px;
+    border-radius: 3px;
+  }
+
+  .footer {
+    position: absolute;
+    left: calc(__PAD__px + 10px);
+    bottom: __PAD__px;
+    font-size: __KICKER_SIZE__px;
+    opacity: .62;
+    letter-spacing: .04em;
+  }
+</style>
+</head>
+<body>
+  <div class="photo"></div>
+  <div class="scrim"></div>
+  <div class="texture"></div>
+  <div class="accent"></div>
+  <div class="inner">
+    <div class="kicker">__KICKER__</div>
+    <div class="title">__TITLE__</div>
+    <div class="rule"></div>
+  </div>
+  <div class="footer">__FOOTER__</div>
+</body>
+</html>

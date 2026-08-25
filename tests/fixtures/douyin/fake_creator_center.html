@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>假·抖音创作者中心（测试用）</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; }
+    .user-info { padding: 8px; border: 1px solid #ddd; width: 260px; }
+    .name-abc123 { font-weight: 600; }
+    .hidden { display: none; }
+    input[type=text] { width: 320px; padding: 6px; }
+    .editor { border: 1px solid #ccc; min-height: 60px; padding: 6px; width: 320px; }
+    button { padding: 6px 14px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <!--
+    这不是抖音真实页面，只是一张"形状对得上"的假页面，用来在真实浏览器里跑通
+    publishers/douyin/service.py 的页面动作逻辑（identity 闸门、截图、验证码填写）。
+    真实创作者中心的 DOM 未在真实站点验证，见 SELECTORS 顶部说明。
+  -->
+  <div class="user-info">
+    <span class="name-abc123">抖音测试号 01</span>
+  </div>
+
+  <h1>发布视频</h1>
+  <!-- 真实页面里这个 input 也是被样式藏起来的 -->
+  <input type="file" accept="video/mp4,video/*" class="hidden">
+
+  <div class="video-info">上传成功</div>
+
+  <p><input type="text" placeholder="填写作品标题，为作品获得更多流量"></p>
+
+  <div class="editor-kit-container">
+    <div contenteditable="true" data-placeholder="添加作品简介" class="editor"></div>
+  </div>
+
+  <label><input type="radio" name="when"> 定时发布</label>
+
+  <button type="button" id="publish">发布</button>
+
+  <!-- 短信二次验证：默认隐藏，测试里用 JS 打开 -->
+  <div class="verify-panel hidden" id="verify">
+    <input type="text" placeholder="请输入验证码" id="sms">
+    <button type="button" id="sms-ok">确认</button>
+  </div>
+
+  <!--
+    验证码面板由测试直接改 DOM 打开（去掉 .hidden），而不是调页面里的全局函数：
+    patchright 的 page.evaluate 跑在隔离世界里，看不到页面自己定义的 window.* 函数，
+    但 DOM 是共享的。这里刻意不放任何脚本，免得测试依赖上它。
+  -->
+</body>
+</html>

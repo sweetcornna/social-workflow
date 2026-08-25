@@ -1,0 +1,41 @@
+{
+  "success": true,
+  "data": {
+    "feed_id": "66c0f1a2000000001e03d5b1",
+    "data": {
+      "note": {
+        "noteId": "66c0f1a2000000001e03d5b1",
+        "xsecToken": "ABC-xsec-token-should-be-redacted",
+        "title": "3 个通勤包收纳思路",
+        "desc": "分区收纳袋 / 一物两用 / 每周清理",
+        "type": "normal",
+        "time": 1786000000000,
+        "ipLocation": "上海",
+        "user": {
+          "userId": "5f2a1b3c000000000101f8aa",
+          "nickname": "通勤研究所"
+        },
+        "interactInfo": {
+          "liked": false,
+          "likedCount": "1.2万",
+          "sharedCount": "12",
+          "commentCount": "36",
+          "collectedCount": "480"
+        },
+        "imageList": [
+          {
+            "width": 1080,
+            "height": 1440,
+            "urlDefault": "https://sns-webpic.invalid/p1.jpg"
+          }
+        ]
+      },
+      "comments": {
+        "list": [],
+        "cursor": "",
+        "hasMore": false
+      }
+    }
+  },
+  "message": "获取Feed详情成功"
+}

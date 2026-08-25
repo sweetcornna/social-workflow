@@ -1,0 +1,89 @@
+# MoneyPrinterTurbo sidecar 配置模板（对照上游 config.example.toml，2026-08-16，HEAD 1f9f19c）
+#
+# 用法：
+#     cp sidecars/mpt/config.example.toml sidecars/mpt/config.toml
+#     # 填 pexels_api_keys / pixabay_api_keys，然后
+#     docker compose --profile video up -d mpt
+#
+# compose 把本目录下的 **config.toml**（不是 .example）挂到容器的
+# /MoneyPrinterTurbo/config.toml。**config.toml 已在 .gitignore 里**——里面有素材源
+# 的 API key，绝不能进 git（凭据只走环境变量或挂载文件，见 docs/POLICY.md）。
+#
+# 关键取舍：本项目**不用 MPT 内置的 LLM**。脚本由 Claude 生成后经 video_script /
+# video_terms 灌入（generation/video_script.py），所以下面的 [app] llm_* 一律留空。
+# 两套 LLM 配置会导致"改了 prompt 却没生效"这类查半天的问题。
+
+# ---- 顶层键（注意：**不在 [app] 下面**，放错位置不会报错，只会静默用默认值）----
+log_level = "INFO"
+listen_host = "0.0.0.0"
+listen_port = 8080
+
+[app]
+# ---- 素材源 -----------------------------------------------------------------
+# 支持 "pexels" / "pixabay" / "coverr" / "local"。core 侧的 MPT_VIDEO_SOURCE 会在
+# 每次提交任务时覆盖它，这里填的是 WebUI 的默认值。
+video_source = "pexels"
+
+# **必填其一**，否则渲染会在 materials 阶段失败。是列表：可以放多个 key 轮换，
+# 免得单 key 撞上素材源的速率限制。
+#   Pexels  免费 key：https://www.pexels.com/api/
+#   Pixabay 免费 key：https://pixabay.com/api/docs/
+# 素材授权：两家都是各自的免费商用许可（Pexels License / Pixabay Content License），
+# 允许商用且无需署名，但**禁止**原样搬运素材本身当作品发布、禁止用于可识别人物的
+# 负面语境。我们只把素材作为口播的背景画面使用，属于允许的二次创作。
+# 详见 docs/THIRD_PARTY.md 的"素材源条款"。
+pexels_api_keys = []
+pixabay_api_keys = []
+
+# ---- LLM：本项目不用，全部留空 ------------------------------------------------
+# 留空即可。MPT 只有在 video_script 为空时才会调它自己的 LLM 写稿，而我们总是灌入
+# Claude 写好的脚本。若这里配了 key，某次请求忘了带 script 就会静默走另一套模型。
+llm_provider = ""
+
+# ---- 字幕 ---------------------------------------------------------------------
+# "edge"（在线，快，免费）或 "whisper"（本地，慢，首次要下模型）。留空则不生成字幕。
+# 抖音是静音刷视频的重灾区，**字幕必须有**，别留空。
+subtitle_provider = "edge"
+
+# ---- 成片链接 -----------------------------------------------------------------
+# 留空时 GET /api/v1/tasks/{id} 返回的 videos 是**根相对路径** /tasks/<id>/xxx.mp4；
+# 填了才是绝对 URL。generation/mpt_client.py 两种都能处理，所以留空即可。
+# 若要给别的服务直接消费成片链接，填成该容器对外可达的地址，例如 "http://mpt:8080"。
+endpoint = ""
+
+# ---- 队列 ---------------------------------------------------------------------
+# 渲染很吃 CPU。单机 + core 的 render_seconds 预算闸门，并发开大没有意义。
+# 队列满时 POST /videos 返回 429，客户端会当作可重试错误。
+max_concurrent_tasks = 1
+max_queued_tasks = 20
+
+# 是否用 Redis 做任务表。默认 false = 存进程内存，**容器一重启任务就没了**。
+# 这正是 core 侧必须持久化 task_id（core.models.RenderJob）的原因；开了 Redis 也
+# 只是让丢任务变少，不能替代持久化。
+enable_redis = false
+# redis_host = "redis"
+# redis_port = 6379
+# redis_db = 0
+# redis_password = ""
+
+# 出站证书校验。除非在自签代理后面，否则别关。
+tls_verify = true
+edge_tts_timeout = 30
+
+# ---- 可选：API 鉴权 ------------------------------------------------------------
+# 上游默认**不鉴权**（app/controllers/v1/video.py 里 Depends(base.verify_token) 被
+# 注释掉了），填这里也不会生效，除非你自己改上游代码打开它。
+# 正确的做法是靠网络隔离：compose 里 mpt 只暴露在 social_workflow 网络内，
+# 不要把 8080 端口发布到 0.0.0.0。
+# api_key = ""
+
+[whisper]
+# 只有 subtitle_provider = "whisper" 时才用到。首次运行会下载模型（large-v3 约 3GB）。
+model_size = "large-v3"
+device = "cpu"
+compute_type = "int8"
+
+# [proxy]
+# 素材源在境内直连不稳时打开。
+# http = "http://127.0.0.1:7890"
+# https = "http://127.0.0.1:7890"

@@ -1,0 +1,56 @@
+# 环境与凭据
+.env
+.env.local
+*.pem
+# MoneyPrinterTurbo sidecar 的实际配置：里面有素材源 API key。
+# 模板是 sidecars/mpt/config.example.toml（那份进 git）
+sidecars/mpt/config.toml
+# TrendRadar sidecar 的实际配置目录（可能被人填上自部署 newsnow 地址等本地信息）。
+# 模板是 sidecars/trendradar/*.example.*（那两份进 git）
+sidecars/trendradar/config/*
+!sidecars/trendradar/config/.gitkeep
+
+# 数据与运行期产物
+*.db
+*.db-journal
+*.sqlite3
+data/
+profiles/
+media/
+logs/
+docker-compose.xhs.yml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.venv-ci/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# 前端工作台（ui/）
+# 产物不入库：每台机器自己跑一次 bash scripts/build_ui.sh。
+# pnpm-lock.yaml 与 ui/screenshots/ 是**要**入库的（审计要对照截图）。
+/ui/node_modules/
+/ui/.next/
+/ui/out/
+/ui/next-env.d.ts
+/ui/tsconfig.tsbuildinfo
+/ui/playwright-report/
+/ui/test-results/
+/ui/.playwright/
+# Playwright MCP 在仓库根丢的会话产物（console log / 页面快照），不是交付物
+.playwright-mcp/
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+
+# 环境本地的 compose 覆盖(如服务器上的环回端口绑定),不入库
+docker-compose.override.yml

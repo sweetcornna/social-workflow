@@ -1,0 +1,9 @@
+{
+  "success": true,
+  "data": {
+    "timeout": "4m0s",
+    "is_logged_in": false,
+    "img": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+  },
+  "message": "获取登录二维码成功"
+}

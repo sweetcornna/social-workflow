@@ -1,0 +1,41 @@
+{
+  "status_code": 0,
+  "ad_search_list": null,
+  "extra": {"now": 1786800000000, "logid": "20260815000000"},
+  "log_pb": {"impr_id": "20260815000000"},
+  "data": {
+    "active_time": "1786800000",
+    "word_list": [
+      {
+        "word": "台风登陆广东沿海地区",
+        "hot_value": 11639021,
+        "position": 1,
+        "view_count": 65297561,
+        "video_count": 14,
+        "event_time": 1786719295,
+        "sentence_id": "2610207",
+        "group_id": "6995531927638021384",
+        "label": 3,
+        "word_type": 1,
+        "word_cover": {"uri": "tos-cn-p-0015/oQQ", "url_list": ["https://p26-sign.douyinpic.com/x.jpeg"]}
+      },
+      {
+        "word": "打工人如何规划通勤时间",
+        "hot_value": 9218400,
+        "position": 2,
+        "view_count": 41200311,
+        "video_count": 9,
+        "event_time": 1786719000,
+        "sentence_id": "2610208",
+        "group_id": "6995531927638021385",
+        "label": 0,
+        "word_type": 1
+      },
+      {
+        "word": "",
+        "hot_value": 1,
+        "position": 3
+      }
+    ]
+  }
+}

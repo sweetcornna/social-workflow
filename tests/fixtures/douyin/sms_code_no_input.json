@@ -1,0 +1,5 @@
+{
+  "ok": false,
+  "state": "no_sms_input",
+  "detail": "当前页面上没有验证码输入框——是不是已经过了这一步？"
+}

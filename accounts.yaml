@@ -1,0 +1,95 @@
+# 账号台账（示例）。凭据不写在这里，只写拓扑、限频与调度策略。
+#
+# 入库（首次部署第一步，幂等，不覆盖运行时 status）：
+#     uv run python -m core.accounts sync
+#     uv run python -m core.accounts list        # 看 DB 里现在有什么
+#     uv run python -m core.accounts check       # 校验台账与 DB 是否一致（preflight 也会查）
+# core 启动时会自动同步一次（SW_SYNC_ACCOUNTS_ON_START，默认 true）。
+#
+# scripts/gen_xhs_sidecars.py 读取本文件生成 docker-compose.xhs.yml（一账号一容器）。
+#
+# P4 新增的调度字段（都写进 Account.extra，都可省）：
+#   daily_target          每天自动产出几条稿（tick_generate）。0 / 缺省 = 不自动生成
+#   publish_windows       发布时段窗口，本地时区；留空 = 全天。支持跨零点 "22:00-02:00"
+#   min_interval_minutes  该账号两次发布的最小间隔（平台缺省值是下限，只能更严）
+#   timezone              窗口用的时区，缺省取 SW_TIMEZONE（Asia/Shanghai）
+#
+# 人设字段（同样写进 Account.extra、同样可省，但**不参与调度**，别跟上面四个混着数）：
+#   persona               行内人设；留空则读 prompts/accounts/<id>/persona.md（推荐后者）
+#
+# P12 确认与托管（写进 Account.extra，放 extra: 块里）：
+#   autopilot             机器审核干净（block 0 且 warn 0）的稿子自动批准并排期。默认关。
+#                         **必须写在这里**：只在 DB 里改会被下一次 sync 冲掉，而 core
+#                         启动时就会 sync 一次，等于重启即失效。2026-08-24 实测过这条。
+#   confirm_required      发布前要不要人点一下。默认开且没有旁路（红线 R1），别关。
+#   confirm_ttl_hours     确认卡多少小时没人点就自动驳回，释放排期槽位
+
+accounts:
+  - id: xhs-demo-01
+    platform: xhs
+    name: 小红书测试号 01
+    # 平台侧限频保守值：小红书日发 <= 50，测试期建议 <= 10
+    daily_limit: 10
+    daily_target: 1
+    # 小红书的流量高峰在午休与晚间，早上发基本没人看
+    publish_windows: ["12:00-14:00", "19:00-22:30"]
+    min_interval_minutes: 90
+    sidecar:
+      # 上游 Docker Hub 镜像；容器内监听 18060。留空则用脚本默认值（含 ${XHS_IMAGE} 覆盖）
+      image: xpzouying/xiaohongshu-mcp:v2.5.0
+      port: 18060
+      # 每账号独立 volume，保存扫码登录后的 cookies，禁止共享
+      volume: xhs_data_demo01
+      # 该 sidecar 的 AUTH_TOKEN 从这个环境变量取（token 本身只写 .env，不进台账）。
+      # sync 会把它写进 Account.extra['xhs']['auth_token_env']——存的是**变量名**不是值
+      token_env: XHS_TOKEN_XHS_DEMO_01
+    extra:
+      autopilot: true
+
+  - id: xhs-demo-02
+    platform: xhs
+    name: 小红书测试号 02
+    daily_limit: 10
+    # 第二个号先只跑发布，不自动出稿（daily_target 省略 = 0）
+    publish_windows: ["12:00-14:00", "19:00-22:30"]
+    min_interval_minutes: 90
+    sidecar:
+      image: xpzouying/xiaohongshu-mcp:v2.5.0
+      port: 18061
+      volume: xhs_data_demo02
+      token_env: XHS_TOKEN_XHS_DEMO_02
+    extra:
+      autopilot: true
+
+  - id: wechat-demo-01
+    platform: wechat_mp
+    name: 公众号测试号 01
+    daily_limit: 1
+    daily_target: 1
+    # 公众号一天一条群发；早上 8 点前推送打开率最高
+    publish_windows: ["07:00-09:00"]
+    extra:
+      autopilot: true
+      # 文章署名，必填：缺了每篇稿都会挂 inspect.platform_extra.missing。
+      # 测试号先用账号名占位，接真号时换成该号对外的署名。
+      author: 公众号测试号 01
+    # 公众号走官方 API，无 sidecar；认证状态由 WECHAT_CERTIFIED 决定是否允许 freepublish
+
+  - id: douyin-demo-01
+    platform: douyin
+    name: 抖音测试号 01
+    # docs/POLICY.md 口径：抖音日 <= 2（代码里还有 DAILY_LIMIT_CEILING=10 的硬顶，
+    # core.accounts.PLATFORM_DAILY_CEILING 与之对齐，有回归测试盯着）
+    daily_limit: 2
+    daily_target: 1
+    publish_windows: ["12:00-13:30", "18:00-22:00"]
+    # 抖音的 30 分钟是平台缺省下限，这里写更保守的值
+    min_interval_minutes: 120
+    # 抖音上传器常驻宿主机（有头浏览器），不进 Docker；一号一 profile，禁止跨账号复用。
+    # 目录由 DOUYIN_PROFILE_ROOT/<account_id> 推导，这里只作台账记录
+    profile_dir: ./profiles/douyin/douyin-demo-01
+    extra:
+      autopilot: true
+      # **防发错号的唯一依据**：填该账号在创作者中心显示的昵称，发布前会读页面比对，
+      # 不一致直接 PermanentError。生产必须填（不填只会 degraded + 告警放行）
+      identity_hint: 抖音测试号 01

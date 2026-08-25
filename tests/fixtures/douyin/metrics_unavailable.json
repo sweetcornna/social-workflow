@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "state": "ok",
+  "metrics": {
+    "available": false,
+    "reason": "数据中心里没找到作品 7412345678901234567 的指标行"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "ok": false,
+  "state": "timeout",
+  "detail": "点发布后 180s 内没等到内容管理页。**可能已经发出去了**——core 侧重试前会先对账，不会重复发。",
+  "screenshot_path": "data/douyin/screenshots/douyin-demo-01/20260816T120500000-publish-timeout.png"
+}

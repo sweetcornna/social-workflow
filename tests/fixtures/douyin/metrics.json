@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "state": "ok",
+  "metrics": {
+    "available": true,
+    "views": 12000,
+    "likes": 480,
+    "comments": 36,
+    "shares": 12
+  }
+}

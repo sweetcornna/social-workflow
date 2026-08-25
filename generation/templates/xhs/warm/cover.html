@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>xhs-cover</title>
+<style>
+  /* warm 手账风 · 封面 1242×1656（3:4）
+     纸张底 + 虚线框 + 胶带贴纸。全部用 CSS 画，无外链资源。 */
+  __FONT_FACE__
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden; }
+
+  body {
+    font-family: __FONT_STACK__;
+    background: __BG__;
+    color: __FG__;
+    position: relative;
+    padding: 76px;
+  }
+
+  /* 纸纹：极淡的横向纸线 */
+  .paper {
+    position: absolute; inset: 0; pointer-events: none; opacity: .5;
+    background-image: repeating-linear-gradient(180deg, transparent 0 71px, __LINE__ 71px 72px);
+  }
+
+  .sheet {
+    position: relative; height: 100%;
+    background: __SURFACE__;
+    border: 5px dashed __LINE__;
+    border-radius: 34px;
+    padding: 118px 84px 96px;
+    display: flex; flex-direction: column;
+  }
+
+  /* 胶带：斜贴在纸的上沿 */
+  .tape {
+    position: absolute; top: -34px; left: 50%; width: 292px; height: 74px;
+    transform: translateX(-50%) rotate(-2.5deg);
+    background: __ACCENT__; opacity: .82;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 30px; letter-spacing: .22em; color: __SURFACE__; font-weight: 700;
+  }
+
+  .stage { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+
+  .headline {
+    font-size: __HEADLINE_SIZE__px; line-height: 1.34; font-weight: 700;
+    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  /* 手写下划线的感觉：一条粗一条细，稍微错开 */
+  .scribble { margin-top: 46px; }
+  .scribble i { display: block; height: 12px; background: __ACCENT__; opacity: .35; border-radius: 8px; }
+  .scribble i:first-child { width: 320px; }
+  .scribble i:last-child { width: 196px; height: 8px; margin-top: 12px; margin-left: 42px; opacity: .22; }
+
+  .subline {
+    margin-top: 48px; font-size: 38px; line-height: 1.7; color: __MUTED__;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  .foot {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    font-size: 30px; color: __MUTED__;
+  }
+  .foot .page {
+    font-variant-numeric: tabular-nums;
+    border: 3px solid __LINE__; border-radius: 999px; padding: 6px 24px;
+  }
+</style>
+</head>
+<body>
+  <div class="paper"></div>
+  <div class="sheet">
+    <div class="tape">__KICKER__</div>
+    <div class="stage">
+      <div class="headline">__HEADLINE__</div>
+      <div class="scribble"><i></i><i></i></div>
+      <div class="subline">__SUBLINE__</div>
+    </div>
+    <div class="foot">
+      <span class="mark">__WATERMARK__</span>
+      <span class="page">__PAGE_NO__</span>
+    </div>
+  </div>
+</body>
+</html>

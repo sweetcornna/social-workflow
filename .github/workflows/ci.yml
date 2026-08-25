@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.5.11"
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Lint (ruff)
+        run: uv run ruff check --output-format=github .
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check .
+
+      - name: Tests (pytest)
+        run: uv run pytest -q
+
+      - name: Preflight (offline)
+        # 无凭据环境下只验证脚本本身可运行；FAIL 是预期的，故不校验退出码
+        run: uv run python scripts/preflight.py --offline || true
+
+      - name: License 台账复核（禁止 GPL 代码依赖）
+        run: |
+          uv run python - <<'PY'
+          import sys
+          from importlib.metadata import distributions
+          bad = []
+          for d in distributions():
+              md = d.metadata
+              text = (md.get("License-Expression") or "") + " " + " ".join(md.get_all("Classifier") or [])
+              if "GPL" in text.upper():
+                  bad.append(f"{md['Name']} :: {text.strip()}")
+          if bad:
+              print("发现 GPL/AGPL 代码依赖，违反 docs/THIRD_PARTY.md 策略：")
+              print("\n".join(bad))
+              sys.exit(1)
+          print("License 复核通过：无 GPL/AGPL 代码依赖")
+          PY
+
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.5.11"
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: 生成小红书 sidecar compose 片段
+        run: uv run python scripts/gen_xhs_sidecars.py
+
+      - name: 准备 sidecar 配置占位（bind mount 的路径必须存在）
+        run: |
+          mkdir -p sidecars/trendradar/config
+          cp sidecars/trendradar/config.example.yaml sidecars/trendradar/config/config.yaml
+          cp sidecars/trendradar/frequency_words.example.txt \
+             sidecars/trendradar/config/frequency_words.txt
+
+      - name: 校验 compose 语法
+        run: |
+          docker compose config >/dev/null
+          docker compose -f docker-compose.yml -f docker-compose.xhs.yml config >/dev/null
+
+      - name: 校验带 profile 的服务也能解析
+        run: |
+          docker compose --profile video --profile xhs --profile sourcing config >/dev/null
+
+  # 连续运行验证：加速时钟下模拟 3 天调度。它是 P4 的核心回归，单独跑一次
+  # 脚本形态（tests/test_soak.py 已经覆盖同一个 run_soak，这里验证 CLI 与退出码）
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.5.11"
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen
+      - name: 连续运行验证（soak）
+        run: uv run python scripts/soak.py --json
+
+  # 渲染 smoke：装 Playwright + chromium，跑打了 render 标记的用例。
+  # continue-on-error：浏览器下载在 CI 上偶发失败，不该把整条流水线拖红
+  render-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.5.11"
+          enable-cache: true
+      - run: uv python install 3.12
+
+      - name: Sync dependencies (含 render extra)
+        run: uv sync --frozen --extra render
+
+      - name: 安装 chromium
+        run: uv run playwright install --with-deps chromium
+
+      - name: 卡片 / 封面真实截图 smoke
+        run: uv run pytest -q -m render
+
+      - name: 公众号 wenyan 渲染 smoke（需要 Node）
+        run: uv run pytest -q -m node
+
+  # ops：scripts/ops/ 生产运维脚本的安全校验，纯 shell 测试，无网络/uv/Docker 依赖，
+  # 直接复用本地 CI 脚本的 ops job，保证 CI 与本地跑的是同一套逻辑
+  ops:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell 静态检查（shellcheck）
+        run: shellcheck scripts/ops/*.sh tests/ops/*.sh
+
+      - name: 运维脚本安全校验（tests/ops）
+        run: bash scripts/ci_local.sh ops

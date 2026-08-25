@@ -1,0 +1,14 @@
+{
+  "publish_id": "100000001",
+  "publish_status": 0,
+  "article_id": "FIXTURE-article-id-0001",
+  "article_detail": {
+    "count": 1,
+    "item": [
+      {
+        "idx": 1,
+        "article_url": "http://mp.weixin.qq.com/s?__biz=FIXTURE&mid=2247483661&idx=1&sn=fixture"
+      }
+    ]
+  }
+}

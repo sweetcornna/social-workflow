@@ -1,0 +1,6 @@
+{
+  "ok": false,
+  "state": "needs_sms",
+  "detail": "点发布后平台要求二次验证，已暂停等真人处理。",
+  "screenshot_path": "data/douyin/screenshots/douyin-demo-01/20260816T120100000-publish-blocked.png"
+}

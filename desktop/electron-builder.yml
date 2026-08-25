@@ -1,0 +1,60 @@
+# social_workflow 工作台桌面版打包配置。
+#
+# 产物名必须**纯 ASCII**（productName 是中文，GitHub Release 的下载链接、
+# NSIS 的临时路径、hdiutil 都不该赌非 ASCII 文件名），所以 artifactName 显式写死。
+appId: xyz.cornna.sw-workbench
+productName: social_workflow 工作台
+copyright: Copyright © 2026 Cornna
+
+directories:
+  output: dist
+  buildResources: assets
+
+# 壳本体只有 src/ 这几个文件；assets/ 与 scripts/ 是构建期资产，不进 asar
+files:
+  - src/**/*
+  - package.json
+
+# 工作台静态导出（ui/out）随 app 走，运行期由内嵌服务挂在 /workbench
+extraResources:
+  - from: ../ui/out
+    to: workbench
+    filter:
+      - "**/*"
+
+# 没有原生依赖，省掉一整轮 rebuild
+npmRebuild: false
+
+artifactName: sw-workbench-${version}-${os}-${arch}.${ext}
+
+mac:
+  category: public.app-category.productivity
+  icon: assets/icon.png
+  darkModeSupport: true
+  # 不签名、不公证：没有 Apple 开发者账号。首次打开要绕 Gatekeeper，
+  # 办法写在 desktop/README.md 与 Release notes 里。
+  identity: null
+  notarize: false
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+
+dmg:
+  title: social_workflow 工作台 ${version}
+
+win:
+  icon: assets/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  allowElevation: true
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: social_workflow 工作台

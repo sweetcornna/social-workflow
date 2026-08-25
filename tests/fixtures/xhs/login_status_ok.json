@@ -1,0 +1,9 @@
+{
+  "success": true,
+  "data": {
+    "is_logged_in": true,
+    "username": "通勤研究所",
+    "user_id": "5f2a1b3c000000000101f8aa"
+  },
+  "message": "检查登录状态成功"
+}

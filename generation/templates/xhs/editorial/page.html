@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>xhs-page</title>
+<style>
+  /* editorial 杂志风 · 内页 1242×1656（3:4） */
+  __FONT_FACE__
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden; }
+
+  body {
+    font-family: __FONT_STACK__;
+    background: __BG__;
+    color: __FG__;
+    position: relative;
+    padding: 118px 104px 118px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .grain {
+    position: absolute; inset: 0; opacity: .045; pointer-events: none;
+    background-image:
+      repeating-linear-gradient(0deg, __FG__ 0 1px, transparent 1px 44px),
+      repeating-linear-gradient(90deg, __FG__ 0 1px, transparent 1px 44px);
+  }
+
+  .index {
+    position: relative;
+    font-size: 116px; line-height: 1; font-weight: 700; color: __ACCENT__;
+    font-variant-numeric: tabular-nums; opacity: .9;
+  }
+
+  .headline {
+    position: relative;
+    margin-top: 26px;
+    font-size: __HEADLINE_SIZE__px; line-height: 1.26; font-weight: 700; letter-spacing: -.01em;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  .hairline { position: relative; height: 2px; background: __FG__; opacity: .22; margin: 46px 0 8px; }
+
+  .bullets { position: relative; flex: 1; list-style: none; padding-top: 30px; }
+  .bullet {
+    display: flex; gap: 26px; align-items: baseline;
+    font-size: __BULLET_SIZE__px; line-height: 1.5; margin-bottom: 40px;
+  }
+  .bullet .marker {
+    flex: 0 0 auto; width: 18px; height: 18px; background: __ACCENT__;
+    transform: translateY(-4px);
+  }
+  .bullet span { flex: 1; }
+
+  .footnote {
+    position: relative;
+    border-left: 6px solid __ACCENT__;
+    padding: 6px 0 6px 26px;
+    font-size: 32px; line-height: 1.5; color: __MUTED__;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  .foot {
+    position: relative; margin-top: 44px;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    font-size: 30px; letter-spacing: .1em; color: __MUTED__;
+  }
+  .foot .page { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+  <div class="grain"></div>
+  <div class="index">__INDEX__</div>
+  <div class="headline">__HEADLINE__</div>
+  <div class="hairline"></div>
+  <ul class="bullets">__BULLETS__</ul>
+  <div class="footnote">__FOOTNOTE__</div>
+  <div class="foot">
+    <span class="mark">__WATERMARK__</span>
+    <span class="page">__PAGE_NO__</span>
+  </div>
+</body>
+</html>

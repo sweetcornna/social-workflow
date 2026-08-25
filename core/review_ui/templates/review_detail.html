@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}审核 · {{ item.title }}{% endblock %}
+{% block body %}
+<h1>{{ item.title or '(无标题)' }}</h1>
+<div class="row muted" style="margin-bottom:14px">
+  <span class="pill s-{{ item.status }}">{{ item.status }}</span>
+  <span>账号 {{ item.account_id }}</span>
+  <span>平台 {{ bundle.platform }}</span>
+  <span>{{ item.id }}</span>
+  <a href="/review">← 返回队列</a>
+</div>
+
+{# 排期时刻：批准后由 core/scheduling.py 按账号的发布时段窗口算出来。
+   运营最想立刻知道的就是"这条几点发"，所以放在最上面。 #}
+{% if slot_text %}
+<div class="banner" style="margin-bottom:14px">
+  <b>排期：</b>{{ slot_text }}
+  {% if item.scheduled_at %}<span class="muted">· {{ item.scheduled_at.strftime('%Y-%m-%d %H:%M') }}Z</span>{% endif %}
+  {% if account_windows %}<span class="muted">· 账号发布时段 {{ account_windows }}</span>{% endif %}
+</div>
+{% endif %}
+
+{% if item.review_notes %}
+<div class="banner" style="margin-bottom:14px"><b>上次驳回理由：</b>{{ item.review_notes }}</div>
+{% endif %}
+
+<div id="actions">
+  {% include "_actions.html" %}
+</div>
+
+{% if bundle.digest or bundle.author %}
+<div class="row muted" style="margin-bottom:14px">
+  {% if bundle.author %}<span>作者 {{ bundle.author }}</span>{% endif %}
+  {% if bundle.digest %}<span>摘要（{{ bundle.digest|length }} 字）：{{ bundle.digest }}</span>{% endif %}
+</div>
+{% endif %}
+
+{% if bundle.videos %}
+{# 成片预览。计划 2.2 的硬约束是"人工看完整片才放行"——所以这一块排在最前面，
+   而且批准按钮在勾选「已完整观看」之前是 disabled 的（后端还会再校验一次）。 #}
+<h2>成片（{{ bundle.videos|length }}）</h2>
+{% for v in bundle.videos %}
+<div class="card">
+  {% if v.exists %}
+  <video controls preload="metadata" playsinline
+         {% if bundle.cover and bundle.cover.exists %}poster="/review/{{ item.id }}/media/{{ bundle.cover.index }}"{% endif %}
+         style="width:100%;max-width:360px;aspect-ratio:9/16;background:#000;border-radius:8px;display:block">
+    <source src="/review/{{ item.id }}/media/{{ v.index }}" type="video/mp4">
+    浏览器不支持内嵌播放，<a href="/review/{{ item.id }}/media/{{ v.index }}">点这里下载成片</a>。
+  </video>
+  {% else %}
+  <div class="banner">成片文件不存在：{{ v.path }}</div>
+  {% endif %}
+  <div class="muted" style="margin-top:6px">
+    {{ v.path }}
+    {% if bundle.duration_s %} · 时长 {{ '%.1f'|format(bundle.duration_s) }} 秒{% endif %}
+    {% if bundle.render.get('skip_render') %}
+    · <b>样本片（skip_render=true），不是真实成片</b>
+    {% elif bundle.render.get('task_id') %}
+    · MPT 任务 {{ bundle.render.get('task_id') }}
+    {% endif %}
+    · <a href="/review/{{ item.id }}/media/{{ v.index }}" target="_blank" rel="noopener">在新标签页打开</a>
+  </div>
+</div>
+{% endfor %}
+{% if bundle.hook or bundle.script %}
+<h2>口播稿{% if bundle.script %}（{{ bundle.script|length }} 字）{% endif %}</h2>
+<div class="card">
+  {% if bundle.hook %}<div class="row" style="margin-bottom:8px"><span class="pill">前 3 秒</span>{{ bundle.hook }}</div>{% endif %}
+  <pre>{{ bundle.script }}</pre>
+</div>
+{% endif %}
+{% elif bundle.platform == 'douyin' %}
+<div class="banner" style="margin-bottom:14px">
+  还没有成片。渲染任务
+  {% if bundle.render.get('job_id') %}<code>{{ bundle.render.get('job_id') }}</code>{% endif %}
+  可能仍在 MoneyPrinterTurbo 侧执行——<code>tick_render_jobs</code> 会在渲染完成后
+  自动把成片挂回来，刷新本页即可。
+</div>
+{% endif %}
+
+{% if bundle.platform == 'xhs' %}
+{# 小红书图文：图先于文。审核页照着读者的顺序排——先看整套卡片，再看正文与话题。 #}
+<h2>图文卡片（{{ bundle.images|length }} 张）</h2>
+{% if bundle.images %}
+<div class="carousel">
+  {% for m in bundle.images %}
+  <figure>
+    {% if m.exists %}
+    <img src="/review/{{ item.id }}/media/{{ m.index }}" alt="第 {{ loop.index }} 张卡片" loading="lazy">
+    {% else %}
+    <div class="thumb">文件不存在<br>{{ m.path }}</div>
+    {% endif %}
+    <figcaption>{{ '封面' if m.cover else '第 %d 页'|format(loop.index0) }}</figcaption>
+  </figure>
+  {% endfor %}
+</div>
+<div class="muted" style="margin-bottom:14px">
+  横向滚动查看全部；点击可在新标签页看原图 ——
+  {% for m in bundle.images %}<a href="/review/{{ item.id }}/media/{{ m.index }}" target="_blank"
+     rel="noopener">{{ loop.index }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+</div>
+{% else %}
+<div class="banner" style="margin-bottom:14px">
+  还没有卡片图。图文笔记至少需要 1 张图，
+  装好 Playwright（<code>uv sync --extra render &amp;&amp; uv run playwright install chromium</code>）后重跑生成链。
+</div>
+{% endif %}
+<div class="row muted" style="margin-bottom:14px">
+  <span>原创声明：{{ '是' if bundle.is_original else '否' }}</span>
+  <span>平台侧定时：{{ bundle.schedule_at or '未设置（走 core 排期，见页首）' }}</span>
+</div>
+{% elif bundle.cover %}
+<h2>封面</h2>
+<div class="card">
+  {% if bundle.cover.exists %}
+  <img src="/review/{{ item.id }}/cover" alt="封面预览"
+       style="max-width:100%;height:auto;border-radius:6px;display:block">
+  {% else %}
+  <span class="muted">封面文件不存在：{{ bundle.cover.path }}</span>
+  {% endif %}
+  <div class="muted" style="margin-top:6px">{{ bundle.cover.path }}</div>
+</div>
+{% endif %}
+
+{% if bundle.platform != 'wechat_mp' %}
+{# 只有公众号需要内联样式 HTML；小红书正文是纯文本，缺 body_html 不是问题 #}
+{% elif bundle.body_html %}
+<h2>公众号预览（内联样式 HTML）</h2>
+{# sandbox iframe：wenyan 产出的整段内联样式若直接插进本页会污染审核 UI 的样式，
+   而且正文来自 LLM，属于不可信内容，必须隔离。sandbox 不给任何权限（不允许脚本）。 #}
+<iframe src="/review/{{ item.id }}/preview" sandbox
+        style="width:100%;height:560px;border:1px solid #d8dbe0;border-radius:6px;background:#fff"
+        title="公众号正文预览"></iframe>
+<div class="muted" style="margin:6px 0 14px">
+  共 {{ bundle.body_html|length }} 字符 ·
+  <a href="/review/{{ item.id }}/preview" target="_blank" rel="noopener">在新标签页打开</a>
+</div>
+{% else %}
+<div class="banner" style="margin-bottom:14px">
+  尚未渲染 <code>body_html</code>。公众号发布需要内联样式 HTML，
+  请确认已安装 Node（<code>npx</code>）后重跑生成链。
+</div>
+{% endif %}
+
+<h2>正文 Markdown</h2>
+<div class="card"><pre>{{ bundle.body_markdown }}</pre></div>
+
+{% if bundle.tags %}
+<div class="row" style="margin-bottom:14px">
+  {% for tag in bundle.tags %}<span class="pill">#{{ tag }}</span>{% endfor %}
+</div>
+{% endif %}
+
+<h2>媒体（{{ bundle.media|length }}）</h2>
+{% if bundle.media %}
+<div class="grid">
+  {% for m in bundle.media %}
+  {% if m.exists and m.kind == 'image' %}
+  <div class="thumb filled">
+    <img src="/review/{{ item.id }}/media/{{ m.index }}" alt="媒体 {{ m.index }}" loading="lazy">
+    <span class="badge">{{ '封面' if m.cover else m.index }}</span>
+  </div>
+  {% else %}
+  <div class="thumb">
+    <div><b>{{ m.kind }}{% if m.cover %} · 封面{% endif %}</b></div>
+    <div>{{ m.path }}</div>
+    <div>{{ '（文件已就绪）' if m.exists else '（占位：文件不存在）' }}</div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% else %}
+<div class="card muted">无媒体资源</div>
+{% endif %}
+
+<h2>改动 diff</h2>
+<div class="card diff">
+  {% if diff %}<pre>{{ diff }}</pre>{% else %}<span class="muted">尚无人工改稿记录</span>{% endif %}
+</div>
+
+<h2>改稿</h2>
+<form class="card" method="post" action="/review/{{ item.id }}/edit"
+      hx-post="/review/{{ item.id }}/edit" hx-target="#actions" hx-swap="innerHTML">
+  <label>标题<input type="text" name="title" value="{{ bundle.title }}"></label>
+  <label style="display:block;margin-top:10px">正文 Markdown
+    <textarea name="body_markdown">{{ bundle.body_markdown }}</textarea></label>
+  <label style="display:block;margin-top:10px">标签（逗号分隔）
+    <input type="text" name="tags" value="{{ bundle.tags|join(',') }}"></label>
+  <label style="display:block;margin-top:10px">改动说明
+    <input type="text" name="reason" placeholder="选填"></label>
+  <div style="margin-top:12px"><button type="submit">保存改稿</button></div>
+</form>
+
+<h2>平台特有字段</h2>
+<div class="card"><pre>{{ platform_extra }}</pre></div>
+
+<h2>审计日志（{{ logs|length }}）</h2>
+<table>
+  <thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>理由 / 结果</th></tr></thead>
+  <tbody>
+  {% for log in logs %}
+    <tr>
+      <td class="muted">{{ log.at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+      <td>{{ log.actor }}</td>
+      <td>{{ log.action }}</td>
+      <td>{{ log.reason or '' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="muted">暂无记录</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>发布记录（{{ records|length }}）</h2>
+<table>
+  <thead><tr><th>幂等键</th><th>阶段</th><th>尝试</th><th>post_id</th><th>URL</th><th>最后错误</th></tr></thead>
+  <tbody>
+  {% for r in records %}
+    <tr>
+      <td class="muted" style="font-family:ui-monospace,monospace">{{ r.idem_key[:16] }}…</td>
+      <td>{{ r.phase }}</td><td>{{ r.attempts }}</td>
+      <td>{{ r.platform_post_id or '—' }}</td>
+      <td>{% if r.url %}<a href="{{ r.url }}">链接</a>{% else %}—{% endif %}</td>
+      <td class="muted">{{ r.last_error or '' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="muted">尚未发起发布</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

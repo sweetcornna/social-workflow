@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}登录续期 · {{ account.name }}{% endblock %}
+{% block body %}
+<h1>登录 / 续期：{{ account.name }}</h1>
+<div class="row muted" style="margin-bottom:14px">
+  <span class="pill s-{{ account.status }}" id="acct-status">{{ account.status }}</span>
+  <span>{{ account.id }} · {{ account.platform }}</span>
+  <a href="/accounts">← 返回账号列表</a>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">扫码登录</h2>
+  {% if host_window_login %}
+  {# 抖音：浏览器在宿主机上，二维码不经过 core，这里只给操作指引 + 状态轮询 #}
+  <p class="muted">
+    抖音发布器是<strong>宿主机上的有头浏览器常驻进程</strong>（<code>python -m publishers.douyin serve</code>），
+    二维码<strong>不经过本页面</strong>。请点下面的按钮，然后
+    <strong>到宿主机弹出的浏览器窗口里，用该账号本人的抖音 App 扫码登录</strong>。
+  </p>
+  <p class="muted">
+    如果抖音要求<strong>短信二次验证</strong>：验证码会发到你自己的手机上，
+    请在下方「短信验证码」框里填写，core 会转发给上传器自动填入那个窗口。
+    本系统<strong>不做任何验证码识别</strong>（见 docs/POLICY.md）。
+  </p>
+  <p class="muted">
+    一号一 <code>profile_dir</code>（<code>profiles/douyin/{{ account.id }}/</code>），登录态长期保活，
+    正常几周才需要来一次。<strong>不要跨账号复制 profile 目录</strong>。
+  </p>
+  <div class="row">
+    <button class="primary" type="button" id="open-window">打开宿主机登录窗口</button>
+    <span class="muted" id="start-result"></span>
+  </div>
+  <div class="muted" id="qr-hint" style="margin-top:10px">等待状态轮询…</div>
+  {% elif supports_login %}
+  {% if account.platform == 'xhs' %}
+  <p class="muted">
+    请用<strong>该账号本人</strong>的<strong>小红书 App</strong> 扫码（App → 右上角「+」→ 扫一扫）。
+    页面每 3 秒查一次登录状态，二维码过期会自动重取；扫码成功后账号自动回 <code>ok</code>，
+    之前被挂起的排期内容会自动放回。
+  </p>
+  <p class="muted">
+    注意：同一小红书账号<strong>不允许多网页端同时登录</strong>——你在浏览器里另开小红书网页版会把这个 sidecar 顶下线。
+    一账号一 sidecar 容器一 volume，不要共享登录态。
+  </p>
+  {% else %}
+  <p class="muted">用对应 App 扫码；页面每 3 秒轮询一次二维码与登录状态。二维码过期自动重取。</p>
+  {% endif %}
+  <img id="qr" alt="登录二维码" width="240" height="240"
+       style="border:1px solid var(--line);border-radius:8px;background:#fff">
+  <div class="muted" id="qr-hint" style="margin-top:8px">加载中…</div>
+  {% else %}
+  <p class="muted">该平台发布器不提供扫码登录（公众号走官方 API，无需扫码）。</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">短信验证码</h2>
+  <p class="muted">
+    抖音登录 / 发布时可能触发短信二次验证。请在此<strong>人工</strong>输入你自己手机收到的验证码：
+    core 会（1）放进内存队列供发布器取用，(2) 同时<strong>转发给抖音上传器</strong>，
+    由它填进宿主机窗口里那个正在等的输入框。
+    本系统不做任何验证码自动识别（见 docs/POLICY.md）；验证码只存内存，不落库、不进日志。
+    小红书只走扫码，不需要这里。
+  </p>
+  <form class="row" method="post" action="/accounts/{{ account.id }}/login/code"
+        hx-post="/accounts/{{ account.id }}/login/code" hx-target="#sms-result" hx-swap="innerHTML">
+    <input type="text" name="code" inputmode="numeric" placeholder="6 位验证码"
+           style="width:180px" required>
+    <button class="primary" type="submit">提交</button>
+  </form>
+  <div id="sms-result" class="muted" style="margin-top:10px">待提交（当前队列 {{ pending_codes }} 条）</div>
+</div>
+
+{% if host_window_login %}
+<script>
+  // 抖音：core 这边只做两件事——按钮触发"在宿主机开登录窗口"，以及每 5 秒查一次状态。
+  // 二维码本身在宿主机的浏览器窗口里，本页面拿不到也不该拿（不代理、不识别）。
+  const accountId = {{ account.id | tojson }};
+  const hintEl = document.getElementById('qr-hint');
+  const statusEl = document.getElementById('acct-status');
+  const startEl = document.getElementById('start-result');
+  const buttonEl = document.getElementById('open-window');
+
+  function say(text) { hintEl.textContent = text; }
+
+  buttonEl.addEventListener('click', async () => {
+    buttonEl.disabled = true;
+    startEl.textContent = '正在唤起宿主机浏览器窗口…（首次启动要等几秒）';
+    try {
+      const resp = await fetch(`/accounts/${encodeURIComponent(accountId)}/login/start`, { method: 'POST' });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+      startEl.textContent = data.detail || `状态：${data.state}`;
+    } catch (err) {
+      startEl.textContent = '打开失败：' + err.message + '（上传器起着吗？`python -m publishers.douyin serve`）';
+    } finally {
+      buttonEl.disabled = false;
+    }
+  });
+
+  async function pollStatus() {
+    try {
+      const resp = await fetch(`/accounts/${encodeURIComponent(accountId)}/login/status`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      statusEl.textContent = data.account_status || data.status;
+      const stamp = new Date().toLocaleTimeString();
+      say((data.logged_in ? '已登录 ✓ ' : `状态：${data.status} · `) + (data.detail || '') + ' · ' + stamp);
+    } catch (err) {
+      say('轮询失败：' + err.message);
+    }
+  }
+
+  pollStatus();
+  // 抖音每次查状态都会真的开浏览器导航一次，比小红书贵得多，轮询放慢到 5 秒
+  setInterval(pollStatus, 5000);
+</script>
+{% elif supports_login %}
+<script>
+  // 原生轮询，不依赖 CDN 上的 htmx，保证扫码链路在离线环境也能工作。
+  //
+  // 二维码**只在过期时重取**：xiaohongshu-mcp 每取一次二维码就会新开一个浏览器会话，
+  // 并把上一个"正在等扫码"的会话关掉。若像 P0 那样每 3 秒重取一次，用户永远扫不上。
+  // 因此这里拆成两个节奏：状态每 3 秒查一次（便宜），二维码按其自身有效期重取。
+  const accountId = {{ account.id | tojson }};
+  const qrEl = document.getElementById('qr');
+  const hintEl = document.getElementById('qr-hint');
+  const statusEl = document.getElementById('acct-status');
+  let expiresAt = 0;
+  let fetching = false;
+
+  function say(text) { hintEl.textContent = text; }
+
+  async function loadQrcode() {
+    if (fetching) return;
+    fetching = true;
+    try {
+      const resp = await fetch(`/accounts/${encodeURIComponent(accountId)}/login/qrcode`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      if (data.image_base64) {
+        qrEl.src = 'data:image/png;base64,' + data.image_base64;
+      }
+      expiresAt = Date.now() + (data.expires_in || 120) * 1000;
+      statusEl.textContent = data.account_status || data.status;
+      say(`二维码已刷新（${data.expires_in || 120}s 内有效）· 状态：${data.status}`
+          + (data.placeholder ? ' · 占位图（未接真实 sidecar）' : ''));
+    } catch (err) {
+      say('取二维码失败：' + err.message);
+      expiresAt = Date.now() + 15000; // 失败后 15s 再试，别把 sidecar 打爆
+    } finally {
+      fetching = false;
+    }
+  }
+
+  async function pollStatus() {
+    try {
+      const resp = await fetch(`/accounts/${encodeURIComponent(accountId)}/login/status`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      statusEl.textContent = data.account_status || data.status;
+      if (data.logged_in) {
+        say(`已登录 ✓ ${data.detail || ''} · ${new Date().toLocaleTimeString()}`);
+        expiresAt = Infinity; // 登录成功就别再刷二维码了
+        return;
+      }
+      say(`等待扫码 · 状态：${data.status}${data.detail ? ' · ' + data.detail : ''}`
+          + ` · ${new Date().toLocaleTimeString()}`);
+      if (Date.now() >= expiresAt) await loadQrcode();
+    } catch (err) {
+      say('轮询失败：' + err.message);
+    }
+  }
+
+  loadQrcode().then(pollStatus);
+  setInterval(pollStatus, 3000);
+</script>
+{% endif %}
+{% endblock %}

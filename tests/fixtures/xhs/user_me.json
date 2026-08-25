@@ -1,0 +1,87 @@
+{
+  "success": true,
+  "data": {
+    "data": {
+      "userBasicInfo": {
+        "nickname": "通勤研究所",
+        "redId": "6789012345",
+        "desc": "每天一个通勤小技巧",
+        "ipLocation": "上海"
+      },
+      "interactions": [
+        {
+          "type": "follows",
+          "name": "关注",
+          "count": "128"
+        },
+        {
+          "type": "fans",
+          "name": "粉丝",
+          "count": "3.4万"
+        },
+        {
+          "type": "interaction",
+          "name": "获赞与收藏",
+          "count": "12.8万"
+        }
+      ],
+      "feeds": [
+        {
+          "id": "66c0f1a2000000001e03d5b1",
+          "xsecToken": "ABC-xsec-token-should-be-redacted",
+          "modelType": "note",
+          "index": 0,
+          "noteCard": {
+            "type": "normal",
+            "displayTitle": "3 个通勤包收纳思路",
+            "user": {
+              "userId": "5f2a1b3c000000000101f8aa",
+              "nickname": "通勤研究所"
+            },
+            "interactInfo": {
+              "liked": false,
+              "likedCount": "1.2万",
+              "sharedCount": "12",
+              "commentCount": "36",
+              "collectedCount": "480"
+            },
+            "cover": {
+              "width": 1080,
+              "height": 1440,
+              "url": "https://sns-webpic.invalid/cover1.jpg",
+              "infoList": []
+            }
+          }
+        },
+        {
+          "id": "66bfe0910000000012034aa2",
+          "xsecToken": "ABC-xsec-token-should-be-redacted",
+          "modelType": "note",
+          "index": 0,
+          "noteCard": {
+            "type": "normal",
+            "displayTitle": "早八人的 5 分钟早餐",
+            "user": {
+              "userId": "5f2a1b3c000000000101f8aa",
+              "nickname": "通勤研究所"
+            },
+            "interactInfo": {
+              "liked": false,
+              "likedCount": "843",
+              "sharedCount": "2",
+              "commentCount": "9",
+              "collectedCount": "120"
+            },
+            "cover": {
+              "width": 1080,
+              "height": 1440,
+              "url": "https://sns-webpic.invalid/cover1.jpg",
+              "infoList": []
+            }
+          }
+        }
+      ]
+    }
+  },
+  "message": "获取我的主页成功"
+}

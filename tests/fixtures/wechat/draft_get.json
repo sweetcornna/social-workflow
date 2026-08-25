@@ -1,0 +1,17 @@
+{
+  "news_item": [
+    {
+      "article_type": "news",
+      "title": "契约测试标题",
+      "author": "小编",
+      "digest": "这是摘要",
+      "content": "<p>正文</p>",
+      "content_source_url": "",
+      "thumb_media_id": "FIXTURE-thumb-media-id-0001",
+      "show_cover_pic": 0,
+      "need_open_comment": 0,
+      "only_fans_can_comment": 0,
+      "url": "http://mp.weixin.qq.com/s?__biz=FIXTURE&idx=1"
+    }
+  ]
+}

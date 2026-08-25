@@ -1,0 +1,107 @@
+[project]
+name = "social-workflow"
+version = "0.1.0"
+description = "三平台（小红书 / 抖音 / 微信公众号）自动化运营工作流 —— 控制面与发布契约"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "social_workflow maintainers" }]
+
+# 依赖 License 白名单：MIT / Apache-2.0 / BSD / PSF / MPL-2.0
+# 任何 GPL/AGPL 组件只能以独立进程（Docker sidecar）形式出现，见 docs/THIRD_PARTY.md
+dependencies = [
+    "fastapi>=0.115",          # MIT
+    "uvicorn[standard]>=0.32",  # BSD-3-Clause
+    "sqlalchemy>=2.0.36",      # MIT
+    "pydantic>=2.9",           # MIT
+    "pydantic-settings>=2.6",  # MIT
+    "jinja2>=3.1",             # BSD-3-Clause
+    "python-multipart>=0.0.12", # Apache-2.0
+    "httpx>=0.27",             # BSD-3-Clause
+    "apscheduler>=3.10,<4",    # MIT
+    "python-dotenv>=1.0",      # BSD-3-Clause
+    "pyyaml>=6.0",             # MIT
+    "rich>=13.9",              # MIT
+    "anthropic>=0.40",       # MIT，Claude API 官方 SDK
+    # 发布时段窗口按账号时区判定（core/accounts.py）。slim 镜像不保证带系统时区库，
+    # 缺了 zoneinfo 会静默退回 UTC——窗口就整体偏 8 小时。Apache-2.0
+    "tzdata>=2024.2",
+]
+
+# 可选：封面截图。刻意不进主依赖——它还要 `playwright install chromium` 下载浏览器，
+# 而封面缺失只会让列表页显示默认图，不该阻断安装与 CI。
+# 安装：uv sync --extra render && uv run playwright install chromium
+[project.optional-dependencies]
+render = [
+    "playwright>=1.49",      # Apache-2.0
+]
+# 可选：抖音宿主机上传器（有头浏览器）。只装在**有图形界面的宿主机**上，
+# core 容器与 CI 都不需要它——core 侧只发本地 HTTP，不 import patchright。
+# 安装：uv sync --extra douyin && uv run patchright install chromium
+douyin = [
+    "patchright>=1.52",      # Apache-2.0，API 与 playwright 一致
+]
+# 可选：deepseek-harness（dsh）Agent 基座，见 generation/llm_dsh.py。
+# 刻意不进主依赖——SDK 会连带装 deepseek-harness-runtime-bin 平台轮子（单文件 Node
+# 运行时，上百 MB），而默认后端仍是 anthropic，装不装都不影响现有部署。
+# pin 精确版本：dsh 处于 developer preview，rc 之间随时破坏兼容。
+# 安装：uv sync --extra dsh
+dsh = [
+    "deepseek-harness-sdk==0.1.0rc6",  # MIT
+]
+mcp = [
+    "mcp>=1.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",   # MIT
+    "ruff>=0.8",     # MIT
+    "respx>=0.21",   # BSD-3-Clause，mock httpx（公众号接口全量打桩）
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# 扁平多包布局，与计划 2.4 目录结构一致
+[tool.hatch.build.targets.wheel]
+packages = [
+    "core",
+    "publishers",
+    "sourcing",
+    "generation",
+    "review",
+    "metrics",
+    "prompts",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [".venv", "data", "profiles", ".git"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM", "RUF"]
+ignore = [
+    "RUF001", # 中文全角标点在字符串中属于预期用法
+    "RUF002",
+    "RUF003",
+    "B008",   # FastAPI Depends/Form 的默认值惯用法
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# 默认排除 live / dsh_live：前者真调 Anthropic API 烧 token，后者要拉起 dsh runtime 子进程
+addopts = "-ra -m 'not live and not dsh_live'"
+markers = [
+    "live: 需要真实 ANTHROPIC_API_KEY，会产生费用。用 `uv run pytest -m live` 触发",
+    "dsh_live: 真起 deepseek-harness runtime 子进程（需要 --extra dsh）。用 `uv run pytest -m dsh_live` 触发。零工具红线那条不需要任何 API Key",
+    "node: 需要本机安装 Node/npx（wenyan 渲染真实 smoke），缺 Node 自动 skip",
+    "render: 需要 Playwright + chromium（卡片真实截图 smoke），缺浏览器自动 skip",
+    "browser: 需要 patchright/playwright + chromium（抖音假页面 smoke），缺浏览器自动 skip",
+]
+filterwarnings = ["error::DeprecationWarning:core.*", "error::DeprecationWarning:publishers.*"]
