@@ -977,18 +977,26 @@ def check_publish_readiness(settings: Settings, accounts: list[dict]) -> list[Ch
         platform = str(account.get("platform") or "?")
         missing: list[str] = []
 
+        # 每一条都带**怎么补**。门禁其余各格（MPT config.toml、渲染链那两条）都是这个体例：
+        # 只说"缺 X"等于把人送回去翻文档，而这一格恰恰是运营者卡住时第一个会看的地方。
         if platform == "wechat_mp":
             if not (settings.wechat_app_id and settings.wechat_app_secret):
-                missing.append("公众号 AppID/Secret 未配置")
+                missing.append(
+                    "公众号 AppID/Secret（公众号后台 → 开发 → 基本配置；"
+                    "补：scripts/ops/env_set.sh --key WECHAT_APP_ID / WECHAT_APP_SECRET）"
+                )
         elif platform == "xhs":
             sidecar = account.get("sidecar") or {}
             if not sidecar.get("port"):
-                missing.append("台账里没有 sidecar.port")
+                missing.append("台账里没有 sidecar.port（accounts.yaml 该账号下补 sidecar.port）")
             token_env = sidecar.get("token_env")
             if not token_env:
                 missing.append("台账里没有 sidecar.token_env")
             elif not os.environ.get(str(token_env)):
-                missing.append(f"环境变量 {token_env} 没设（sidecar 的 Bearer token）")
+                missing.append(
+                    f"环境变量 {token_env} 没设——它是 sidecar 的 Bearer token，"
+                    f"起 sidecar 时生成（bash scripts/ops/sidecar.sh --status 看现状）"
+                )
         elif platform == "douyin":
             if not settings.douyin_service_url:
                 missing.append("DOUYIN_SERVICE_URL 没配")

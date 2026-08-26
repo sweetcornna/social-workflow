@@ -807,6 +807,9 @@ def test_publish_readiness_names_exactly_what_is_missing() -> None:
     detail = checks["账号 wechat-01 就绪度"].detail
     assert checks["账号 wechat-01 就绪度"].status == "WARN"
     assert "AppID/Secret" in detail, "要点名缺的是哪一样"
+    # 只说"缺 X"等于把人送回去翻文档。门禁其余各格都带怎么补，这一格不能例外——
+    # 它恰恰是运营者卡住时第一个会看的地方。
+    assert "env_set.sh" in detail, "要顺带说清怎么补"
 
 
 def test_turning_the_confirm_gate_off_is_reported_as_FAIL_not_as_progress() -> None:
