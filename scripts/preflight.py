@@ -915,7 +915,9 @@ def check_render_chain(settings: Settings) -> list[Check]:
                 "渲染链 Playwright",
                 "WARN",
                 "未安装：**出不了封面与卡片**。小红书/抖音的稿子会在机器审核挂 "
-                f"inspect.*.cover.missing 并被拦下（公众号纯文不受影响）。装：{INSTALL_HINT}",
+                "inspect.*.cover.missing 并被拦下；公众号那条虽然只是 warn，但 autopilot "
+                "自动批准要求 block 与 warn 都为 0，所以**三个平台都别想全自动**。"
+                f"装：{INSTALL_HINT}",
             )
         )
 
@@ -927,8 +929,10 @@ def check_render_chain(settings: Settings) -> list[Check]:
             Check(
                 "渲染链 Node",
                 "WARN",
-                f"找不到 {node_bin}：公众号正文渲不出 body_html（WECHAT_BACKEND=wenyan 时必需）。"
-                "装 Node 或改 WENYAN_NODE_BIN",
+                f"找不到 {node_bin}：**公众号这条链一条稿都出不去**。body_html 只有一条产出"
+                "路径（wechat_render 的 npx wenyan），而 inspect 里 body_html.missing 对 "
+                "wechat_mp 是 block。注意这与 WECHAT_BACKEND 无关——那说的是发布器走 API "
+                "还是走 wenyan，跟渲染器是两码事。装 Node 或改 WENYAN_NODE_BIN",
             )
         )
     return checks

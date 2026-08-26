@@ -742,3 +742,31 @@ def test_the_production_image_actually_ships_the_render_chain() -> None:
     assert "PLAYWRIGHT_BROWSERS_PATH" in dockerfile, (
         "浏览器要装在共享路径上，否则运行时的 appuser 找不到 root 装的那份"
     )
+    # Node 同样不是可选的：body_html 只有 wechat_render 的 npx wenyan 一条产出路径，
+    # 而 inspect 里 body_html.missing 对 wechat_mp 是 **block**。缺 Node 的镜像上，
+    # 公众号这条链一条稿都出不去——生产上实测过，--lane wechat 当场红在 block 1 / warn 0。
+    assert "/usr/local/bin/node" in dockerfile, "镜像没装 Node，公众号链出不了 body_html"
+    assert "npm install -g @wenyan-md/cli" in dockerfile, (
+        "wenyan CLI 要预装进镜像，否则每次渲染都靠 npx 现下载"
+    )
+
+
+def test_the_node_warning_does_not_blame_the_wrong_setting(monkeypatch) -> None:
+    """门禁那句话本身出过错，而且**把人导向了错误的结论**。
+
+    原文是「公众号正文渲不出 body_html（WECHAT_BACKEND=wenyan 时必需）」。据此读下来会
+    以为默认的 ``api`` 后端用不上 Node——我就是这么判断的，于是镜像那层没装 Node，
+    随后 ``--lane wechat`` 的验收在生产上红了：block 1 / warn 0，正是 ``body_html.missing``。
+
+    实际上 ``WECHAT_BACKEND`` 说的是**发布器**走 API 还是走 wenyan，跟渲染器是两码事；
+    ``body_html`` 无论如何都只有 ``generation/wechat_render.py`` 一条产出路径。
+
+    一句把责任指错地方的门禁提示，比没有提示更贵——它会让人放心地不装那个东西。
+    """
+    import scripts.preflight as preflight
+
+    monkeypatch.setattr("generation.wechat_render.node_available", lambda *a, **k: False)
+    checks = {c.name: c for c in preflight.check_render_chain(reload_settings())}
+    detail = checks["渲染链 Node"].detail
+    assert "WECHAT_BACKEND=wenyan 时必需" not in detail, "这句话是错的，它导致过一次真实故障"
+    assert "block" in detail, "要说清后果是 block，不是「没有封面而已」"
