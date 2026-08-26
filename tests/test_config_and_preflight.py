@@ -770,3 +770,99 @@ def test_the_node_warning_does_not_blame_the_wrong_setting(monkeypatch) -> None:
     detail = checks["渲染链 Node"].detail
     assert "WECHAT_BACKEND=wenyan 时必需" not in detail, "这句话是错的，它导致过一次真实故障"
     assert "block" in detail, "要说清后果是 block，不是「没有封面而已」"
+
+
+def _readiness(accounts, monkeypatch=None):
+    import scripts.preflight as preflight
+
+    return {c.name: c for c in preflight.check_publish_readiness(reload_settings(), accounts)}
+
+
+def test_publish_readiness_answers_the_question_per_account() -> None:
+    """门禁其余各格都是全局的；这一格回答运营者真正要问的那句：哪个号能发、差什么。"""
+    checks = _readiness(
+        [
+            {"id": "wechat-01", "platform": "wechat_mp"},
+            {"id": "xhs-01", "platform": "xhs", "sidecar": {"port": 18060, "token_env": "T_X"}},
+        ]
+    )
+    assert set(checks) == {"账号 wechat-01 就绪度", "账号 xhs-01 就绪度"}, "每个账号一行，不多不少"
+    assert "wechat_mp" in checks["账号 wechat-01 就绪度"].detail
+
+
+def test_publish_readiness_names_exactly_what_is_missing() -> None:
+    """ "发不出去"不够，要说出缺的是哪一样——否则这一格只是把人送回去翻文档。"""
+    import scripts.preflight as preflight
+
+    settings = reload_settings()
+    object.__setattr__(settings, "sw_use_fake_publishers", False)
+    object.__setattr__(settings, "wechat_app_id", "")
+    object.__setattr__(settings, "wechat_app_secret", "")
+    checks = {
+        c.name: c
+        for c in preflight.check_publish_readiness(
+            settings, [{"id": "wechat-01", "platform": "wechat_mp"}]
+        )
+    }
+    detail = checks["账号 wechat-01 就绪度"].detail
+    assert checks["账号 wechat-01 就绪度"].status == "WARN"
+    assert "AppID/Secret" in detail, "要点名缺的是哪一样"
+
+
+def test_turning_the_confirm_gate_off_is_reported_as_FAIL_not_as_progress() -> None:
+    """关掉人工确认闸门是 **FAIL**，而且要说清它违反的是什么。
+
+    这一格最容易被读反：其余账号都是 WARN（缺凭据），如果"关掉闸门"只是让 WARN 变 OK，
+    那门禁就成了在教人怎么把自己搞进封号里——2026-08-17 的产品裁决写得很清楚，
+    小红书 2026-03-10 公告封禁 AI 全托管账号，人工确认这一环是合规底线，不许旁路。
+
+    所以它必须比"缺凭据"更响，而不是更轻。
+    """
+    checks = _readiness([{"id": "xhs-01", "platform": "xhs", "confirm_required": False}])
+    check = checks["账号 xhs-01 就绪度"]
+    assert check.status == "FAIL", "关掉闸门必须是 FAIL——它比缺凭据严重，不是比缺凭据轻"
+    assert "红线 R1" in check.detail, "要说清违反的是哪一条"
+
+
+def test_the_gate_being_on_never_reads_as_a_defect() -> None:
+    """闸门开着是正常状态。措辞里不许出现"关掉它就能过"这种引导。"""
+    checks = _readiness([{"id": "xhs-01", "platform": "xhs"}])
+    detail = checks["账号 xhs-01 就绪度"].detail
+    assert "合规底线" in detail, "闸门开着要写明它是合规底线，不是待办事项"
+    assert "非缺陷" in detail
+
+
+def test_preflight_registers_publish_readiness(tmp_path) -> None:
+    """接进 run_checks，否则上面几条测的是一个没人调用的函数。"""
+    import scripts.preflight as preflight
+
+    roster = tmp_path / "accounts.yaml"
+    roster.write_text("accounts:\n  - id: xhs-01\n    platform: xhs\n", encoding="utf-8")
+    names = [c.name for c in preflight.run_checks(offline=True, accounts_path=roster)]
+    assert "账号 xhs-01 就绪度" in names
+
+
+def test_preflight_table_stays_readable_when_piped(monkeypatch) -> None:
+    """不是终端时要够宽——门禁最需要被读懂的场合就是部署日志。
+
+    走 ssh 管道时 stdout 不是 tty，rich 退回 80 列，长 detail 被截成 `…`。
+    「账号 xhs-01 就绪度：缺 ...」那句话被截掉之后，这一格就等于没写。
+    """
+    import scripts.preflight as preflight
+
+    monkeypatch.setattr("sys.stdout.isatty", lambda: False)
+    assert (preflight.console_width() or 0) >= 120, "管道里要够宽，否则 detail 会被截断"
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    assert preflight.console_width() is None, "真终端里跟着终端走，别硬钉宽度"
+
+
+def test_readiness_never_claims_an_account_is_reachable() -> None:
+    """ "配置齐了"不等于"连得上"——这一格只读配置，措辞不许越界。
+
+    抖音那个号在生产上配置是齐的（DOUYIN_SERVICE_URL + profile_dir），但宿主机上传器
+    根本没起。如果这里写「凭据已配齐」，读的人会得出"这个号能发了"的结论，而它发不了。
+    """
+    checks = _readiness([{"id": "douyin-01", "platform": "douyin", "profile_dir": "./p"}])
+    detail = checks["账号 douyin-01 就绪度"].detail
+    assert "凭据已配齐" not in detail, "别把「配置齐」说成「就绪」"
+    assert "sidecar / 上传器" in detail, "要把读者指向真正回答可达性的那几格"

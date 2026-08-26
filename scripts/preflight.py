@@ -34,7 +34,19 @@ from core.config import Settings, config_env_file
 Status = Literal["OK", "WARN", "FAIL", "SKIP"]
 
 ROOT = Path(__file__).resolve().parent.parent
-console = Console()
+
+
+def console_width() -> int | None:
+    """不是终端时钉一个够宽的列数；是终端就跟着终端走（``None`` = rich 自动探测）。
+
+    走 ssh 管道或 CI 时 stdout 不是 tty，rich 退回默认 80 列，长一点的 detail 会被截成
+    ``…``。而门禁最需要被读懂的场合恰恰就是这一种——部署日志里那句"缺的是什么"被截掉，
+    这一格就等于没写。人在本机跑时反而不需要这个：终端多宽就用多宽。
+    """
+    return None if sys.stdout.isatty() else 160
+
+
+console = Console(width=console_width())
 
 
 @dataclass
@@ -938,6 +950,102 @@ def check_render_chain(settings: Settings) -> list[Check]:
     return checks
 
 
+def check_publish_readiness(settings: Settings, accounts: list[dict]) -> list[Check]:
+    """**逐个账号**回答一句话：它今天能不能真发出去，不能的话还差什么。
+
+    【为什么按账号而不是按平台】门禁其余各格都是全局的——「公众号 AppID/Secret 未配置」
+    「sidecar xhs-01 不可达」。它们各自都对，但没有任何一格回答运营者真正要问的那句：
+    **"我这三个号，现在到底哪个能发、哪个不能、差的是什么"**。把三四条全局 WARN 在脑子里
+    拼成这个答案，是每次都要重做一遍的翻译工作，而翻译错的代价是以为能发结果发不出去。
+
+    这一格只读配置，**不打网络**：可达性由 check_sidecars / check_douyin_service /
+    check_wechat 负责，这里再探一遍只是让门禁更慢。它答的是"配齐了没有"。
+
+    【人工确认闸门在这里是 OK，不是缺陷】
+    2026-08-17 的产品裁决：自动跑到"就等发"，发布前推消息给人点一下才真发，**不做全托管**——
+    小红书 2026-03-10 公告封禁 AI 全托管账号，人工确认这一环是合规底线。所以本格把
+    ``confirm_required=true`` 记成正常状态并写明理由。**任何人（包括未来的我）读到这一格，
+    都不该把它理解成"关掉它就能全绿"**——关掉它换来的不是绿色，是封号风险。
+    """
+    checks: list[Check] = []
+    if not accounts:
+        return checks
+
+    fake = settings.sw_use_fake_publishers
+    for account in accounts:
+        account_id = str(account.get("id") or "?")
+        platform = str(account.get("platform") or "?")
+        missing: list[str] = []
+
+        if platform == "wechat_mp":
+            if not (settings.wechat_app_id and settings.wechat_app_secret):
+                missing.append("公众号 AppID/Secret 未配置")
+        elif platform == "xhs":
+            sidecar = account.get("sidecar") or {}
+            if not sidecar.get("port"):
+                missing.append("台账里没有 sidecar.port")
+            token_env = sidecar.get("token_env")
+            if not token_env:
+                missing.append("台账里没有 sidecar.token_env")
+            elif not os.environ.get(str(token_env)):
+                missing.append(f"环境变量 {token_env} 没设（sidecar 的 Bearer token）")
+        elif platform == "douyin":
+            if not settings.douyin_service_url:
+                missing.append("DOUYIN_SERVICE_URL 没配")
+            if not account.get("profile_dir"):
+                missing.append("台账里没有 profile_dir（登录态目录）")
+
+        # 闸门单独说，且明确不算缺陷。
+        # 借 core.accounts 自己那个解析器，而不是在这里重写一遍 truthy 判断：
+        # 门禁对"闸门开没开"的读法必须和运行时**逐字符一致**，否则门禁说开、调度器说关，
+        # 而这一格恰恰是最不能读错的那格。
+        from core.accounts import _as_bool
+
+        gate = _as_bool(account.get("confirm_required"), default=True)
+        gate_note = (
+            "人工确认闸门开（合规底线，非缺陷：小红书封禁 AI 全托管，这一环不许旁路）"
+            if gate
+            else "**人工确认闸门被关掉了**——这违反 2026-08-17 的产品裁决与红线 R1"
+        )
+
+        if not gate:
+            # 关掉闸门是真正的异常，必须比"缺凭据"更响。
+            checks.append(Check(f"账号 {account_id} 就绪度", "FAIL", gate_note))
+            continue
+        if fake:
+            checks.append(
+                Check(
+                    f"账号 {account_id} 就绪度",
+                    "WARN",
+                    f"{platform}：**模拟发布器开着，全局不会真发**"
+                    + (
+                        f"；另外还缺：{'、'.join(missing)}"
+                        if missing
+                        else "（配置齐了；能不能连上看下面 sidecar / 上传器那几格）"
+                    )
+                    + f"。{gate_note}",
+                )
+            )
+        elif missing:
+            checks.append(
+                Check(
+                    f"账号 {account_id} 就绪度",
+                    "WARN",
+                    f"{platform}：发不出去，缺 {'、'.join(missing)}。{gate_note}",
+                )
+            )
+        else:
+            checks.append(
+                Check(
+                    f"账号 {account_id} 就绪度",
+                    "OK",
+                    f"{platform}：配置齐、真实发布已开（可达性看下面 sidecar / 上传器那几格）。"
+                    f"{gate_note}",
+                )
+            )
+    return checks
+
+
 def run_checks(*, offline: bool, accounts_path: Path) -> list[Check]:
     settings = Settings()
     accounts = load_accounts(accounts_path)
@@ -954,6 +1062,7 @@ def run_checks(*, offline: bool, accounts_path: Path) -> list[Check]:
         *check_mpt(settings, offline),
         *check_trendradar(settings, offline),
         *check_accounts_synced(accounts_path),
+        *check_publish_readiness(settings, accounts),
         *check_sidecars(settings, accounts, offline),
         check_douyin_service(settings, offline),
         *check_docker(),
