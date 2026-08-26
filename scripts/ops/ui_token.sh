@@ -93,6 +93,16 @@ SW_OPS_CREDENTIALS_TELEGRAM_SIGNING_SECRET_KEY='sw_telegram_signing_secret'
 # 与上一个常量同理：本文件自己一次都不读它，取用方是 env_set.sh 的 sw_env_policy 那张表。
 SW_OPS_CREDENTIALS_TELEGRAM_BOT_TOKEN_KEY='telegram_bot_token'
 
+# 生产 .env 的 DEEPSEEK_API_KEY（dsh 后端打模型网关用的那把）在凭据文件里的键名。
+# 【它与上面三个的差别】上面两个是本机 CSPRNG 造出来的，bot token 由 BotFather 签发；
+# 这一个由**模型网关**签发，同样本机造不出来，所以 POLICY_CRED_ORIGIN 也是 external-issuer，
+# --generate 会被拒绝。人从网关控制台拿到之后自己写进这个键，再走 --from-credentials 推上去。
+# 它也是第一个**不在签名密钥回落链上**的凭据类键：改它动不到任何一张确认卡，
+# 所以它的闸门不是 signing_secret，而是自己那道 llm_key_live（写之前先问网关认不认这把 key）。
+# shellcheck disable=SC2034
+# 与上两个常量同理：本文件自己一次都不读它，取用方是 env_set.sh 的 sw_env_policy 那张表。
+SW_OPS_CREDENTIALS_DEEPSEEK_API_KEY_KEY='deepseek_api_key'
+
 # 取用结果。SOURCE 为空表示"本次不带 token"（保持改造前的未鉴权行为）。
 SW_OPS_UI_TOKEN_VALUE=""
 SW_OPS_UI_TOKEN_SOURCE=""
@@ -636,3 +646,18 @@ _sw_ops_emit_env_value_prologue_impl() {
   printf 'export SW_ENV_SET_VALUE=%q\n' "${SW_OPS_ENV_VALUE}"
 }
 sw_ops_emit_env_value_prologue() { sw_ops_xtrace_guard _sw_ops_emit_env_value_prologue_impl; }
+
+# 拿 SW_OPS_ENV_VALUE 里那把 key 去问一次模型网关，只回一个 HTTP 状态码（连不上回 000）。
+# 【为什么值走 --config - 而不是 -H】同本文件里其余几处探针的理由：`-H "Authorization: …"`
+# 会把值留在 argv，也就是 /proc/*/cmdline 与 ps 输出里。printf 是 bash 内建、不 fork，
+# 管道右端的 curl 只看到 `--config -`，值从它的 stdin 走。
+# 外面包 sw_ops_xtrace_guard：调用方开着 bash -x 时，printf 那行会连同展开后的值一起被打出来。
+# 只打 /models（GET、幂等、不产生用量），不打 /chat/completions：闸门要问的是"这把 key 网关
+# 认不认"，一个真推理请求既慢又花钱，还会因为模型名不对而假红。
+_sw_ops_probe_llm_key_impl() {
+  local base="${1%/}"
+  printf 'header = "Authorization: Bearer %s"\n' "${SW_OPS_ENV_VALUE}" \
+    | curl --silent --output /dev/null --write-out '%{http_code}' \
+        --connect-timeout 10 --max-time 25 --config - "${base}/models" 2>/dev/null
+}
+sw_ops_probe_llm_key() { sw_ops_xtrace_guard _sw_ops_probe_llm_key_impl "$@"; }

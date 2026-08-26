@@ -192,6 +192,8 @@ set -uo pipefail
 # 解析出来的头写进 TEST_AUTH_LOG（**与 argv 日志分开的文件**）。
 curl_url=""
 curl_write_out=""
+curl_output=""
+curl_fail=0
 curl_config_stdin=0
 curl_auth_header=""
 curl_i=1
@@ -206,9 +208,18 @@ while [[ "${curl_i}" -le "$#" ]]; do
       curl_i=$((curl_i + 1))
       if [[ "${curl_i}" -le "$#" ]]; then curl_write_out="${!curl_i}"; fi
       ;;
-    --max-time)
+    --max-time|--connect-timeout)
       curl_i=$((curl_i + 1))
       ;;
+    # 【真 curl 的 -o 把**响应体**写去那个文件，stdout 只剩 --write-out 的产物】
+    # 少了这一层，llm_key_live 那道闸门会拿到 `<响应体>200` 而不是 `200`，
+    # 于是一个本该通过的 200 被判成"探不到"。假件不模拟它就测不出真行为。
+    -o|--output)
+      curl_i=$((curl_i + 1))
+      if [[ "${curl_i}" -le "$#" ]]; then curl_output="${!curl_i}"; fi
+      ;;
+    -f|--fail) curl_fail=1 ;;
+    -sSf|-fsS|-fS|-fs) curl_fail=1 ;;
     -*) ;;
     *) curl_url="${curl_arg}" ;;
   esac
@@ -229,6 +240,18 @@ fi
 
 curl_emit() {
   local body="$1" code="$2" status="$3"
+  # 【22 只在带了 -f 时才发生】真 curl 不带 -f 时，HTTP 401/500 一律**退 0**，响应体照常给，
+  # 状态码由 --write-out 交出来。上面那几条探针全带 -f，所以这一层以前不需要；
+  # llm_key_live 那道闸门**刻意不带** -f（它要的就是拿到 401 这个数，而不是"失败了"），
+  # 假件不分辨就会把 401 变成 000，闸门于是把"网关拒绝"误报成"探不到"——两个码的分界当场失效。
+  if [[ "${status}" -eq 22 && "${curl_fail}" -eq 0 ]]; then
+    status=0
+  fi
+  if [[ -n "${curl_output}" ]]; then
+    # 响应体去 -o 指定的地方，不进 stdout（真 curl 就是这样）
+    printf '%s' "${body}" >"${curl_output}" 2>/dev/null || true
+    body=""
+  fi
   if [[ "${status}" -eq 0 ]]; then
     printf '%s' "${body}"
   elif [[ "${status}" -eq 22 ]]; then
@@ -237,11 +260,18 @@ curl_emit() {
     printf 'curl: (%s) fake transport failure\n' "${status}" >&2
   fi
   if [[ -n "${curl_write_out}" ]]; then
-    if [[ "${curl_write_out}" != '\n%{http_code}' ]]; then
-      printf 'curl-fake-unsupported-write-out <%s>\n' "${curl_write_out}" >>"${TEST_LOG}"
-      exit 91
-    fi
-    printf '\n%s' "${code}"
+    # 两种格式都真实存在于本仓：探针那批用 '\n%{http_code}'（要把状态码另起一行，
+    # 免得和响应体粘在一起），llm_key_live 那道闸门用裸 '%{http_code}'（它 --output /dev/null，
+    # 没有响应体可粘）。假件两种都认，但**只认这两种**——别的格式照旧退 91，
+    # 免得将来悄悄换成一个假件根本没模拟的格式还一路绿灯。
+    case "${curl_write_out}" in
+      '\n%{http_code}') printf '\n%s' "${code}" ;;
+      '%{http_code}')    printf '%s' "${code}" ;;
+      *)
+        printf 'curl-fake-unsupported-write-out <%s>\n' "${curl_write_out}" >>"${TEST_LOG}"
+        exit 91
+        ;;
+    esac
   fi
   exit "${status}"
 }
@@ -323,6 +353,17 @@ if [[ "${curl_url}" == */api/v1/dashboard || "${curl_url}" == */api/v1/dashboard
   fi
   dashboard_awaiting="${TEST_AWAITING_CONFIRM:-0}"
   curl_emit '{"ok":true,"data":{"generated_at":"2026-08-22T02:00:00Z","window_days":1,"counters":{"pending_review":1,"published_today":2,"published_7d":9,"failed":0,"dead_letter":0,"scheduled":5,"suspended":0,"awaiting_confirm":'"${dashboard_awaiting}"',"rendering":0,"accounts_needing_relogin":0,"accounts_degraded":0,"accounts_suspended":0},"budget":{"token":{"used":1.5,"limit":10.0,"remaining":8.5}},"platforms":[{"platform":"xhs","accounts":1,"ok":1,"degraded":0,"needs_relogin":0,"banned":0,"suspended":0,"pending_review":1,"scheduled":5,"published":9,"used_today":2,"daily_limit":3}],"attention":[{"account_id":"acc-1","name":"SENTINEL_ACCOUNT_NAME","platform":"xhs","status":"needs_relogin","suspended":2}],"events":[{"kind":"review_log","at":"2026-08-22T01:00:00Z","actor":"operator","action":"approve","item_id":"itm-1","title":"SENTINEL_ITEM_TITLE","account_id":"acc-1","detail":"SENTINEL_EVENT_DETAIL","url":null}]},"error":null}' "${curl_code}" 0
+fi
+# ---- <baseURL>/models：llm_key_live 闸门问"网关认不认这把新 key"的那条 ----------------
+# 它与上面几条有两点不同，都要保留：① 它被**本机**的 env_set.sh 直接打，不经 ssh、不经容器，
+# 所以上面那段"容器 token → 401"的模拟对它不适用（它带的是网关的 key，不是工作台 token）；
+# ② 它 --output /dev/null，判据只有状态码。TEST_LLM_MODELS_HTTP_CODE 控状态码，
+# TEST_LLM_MODELS_CURL_STATUS 控"连都连不上"，两者必须分开——那正是 47 与 48 两个码的分界。
+if [[ "${curl_url}" == */models ]]; then
+  [[ "${TEST_LLM_MODELS_CURL_STATUS:-0}" -ne 0 ]] && curl_emit '' '000' "${TEST_LLM_MODELS_CURL_STATUS}"
+  curl_code="${TEST_LLM_MODELS_HTTP_CODE:-200}"
+  [[ "${curl_code}" -ge 400 ]] && curl_emit '' "${curl_code}" 22
+  curl_emit '{"object":"list","data":[]}' "${curl_code}" 0
 fi
 [[ "${TEST_CURL_STATUS:-0}" -ne 0 ]] && curl_emit '' '000' "${TEST_CURL_STATUS}"
 curl_code="${TEST_INFO_HTTP_CODE:-200}"
@@ -634,7 +675,7 @@ assert_contains "${RESULT}" "只能选一个"
 
 run_case "no arguments prints usage"
 assert_status 2
-assert_contains "${RESULT}" "白名单（十二个键，写死在脚本里，**不接受运行时扩展**）："
+assert_contains "${RESULT}" "白名单（十三个键，写死在脚本里，**不接受运行时扩展**）："
 # usage 里那份清单是**手写**的，而它旁边那个键数之所以允许留着，理由是"枚举就在紧下方、
 # 数字自证"。那个理由只有在**枚举本身也被钉住**时才成立——否则手写清单漏一个键，数字与
 # 清单一起错，谁也发现不了。所以这里逐键断言它出现在 usage 输出里。
@@ -647,8 +688,8 @@ for usage_key in ${usage_expected_keys}; do
   usage_seen=$((usage_seen + 1))
   assert_contains "${RESULT}" "  ${usage_key} "
 done
-if [[ "${usage_seen}" -ne 12 ]]; then
-  fail_assertion "白名单里有 ${usage_seen} 个键，usage 那行写着「十二个键」——两处必须一起改"
+if [[ "${usage_seen}" -ne 13 ]]; then
+  fail_assertion "白名单里有 ${usage_seen} 个键，usage 那行写着「十三个键」——两处必须一起改"
 fi
 assert_contains "${RESULT}" "SW_LLM_BACKEND               anthropic|dsh"
 assert_contains "${RESULT}" "SW_TELEGRAM_SIGNING_SECRET   凭据"
@@ -689,7 +730,7 @@ assert_not_contains "${RESULT}" "P12 Telegram 无人值守确认通道"
 # 见证行改由 SW_ENV=prod / sk-TESTFAKE-... / 那行注释承担，它们仍然在白名单之外。
 assert_contains "${RESULT}" "$(printf '  %-28s 已设置（凭据，值不回显：红线 R5）' TELEGRAM_BOT_TOKEN)"
 
-# ---- --show 覆盖**全部**十一个白名单键，而且是从 SW_ENV_WHITELIST 派生的 ----------
+# ---- --show 覆盖**全部**十三个白名单键，而且是从 SW_ENV_WHITELIST 派生的 ----------
 # 「白名单加了键但 --show 看不见」是一种无声的漏法：人跑一次 --show，看不到那个键，
 # 就以为它没被这套工具管着。这里逐键断言它出现在输出里，一个都不许少。
 case_name="--show covers every whitelisted key"
@@ -702,8 +743,8 @@ for show_key in ${show_expected_keys}; do
   show_seen=$((show_seen + 1))
   assert_contains "${RESULT}" "$(printf '  %-28s ' "${show_key}")"
 done
-if [[ "${show_seen}" -ne 12 ]]; then
-  fail_assertion "白名单里有 ${show_seen} 个键，本轮预期 12 个；改了键数就回来同步这条断言"
+if [[ "${show_seen}" -ne 13 ]]; then
+  fail_assertion "白名单里有 ${show_seen} 个键，本轮预期 13 个；改了键数就回来同步这条断言"
 fi
 
 # ---- 等价别名：主名没设、别名设了，绝不能只答"未设置" --------------------------
@@ -2298,7 +2339,7 @@ assert_rejected_before_remote
 assert_contains "${RESULT}" "没有可用的 telegram_bot_token 键"
 assert_contains "${RESULT}" "这个键**没有**对应的环境变量入口"
 # "怎么新建一个"必须指向 BotFather，而不是一条它压根没有的 --generate。
-assert_contains "${RESULT}" "值从哪儿来：人去 @BotFather 拿"
+assert_contains "${RESULT}" "值从哪儿来：Telegram 的 @BotFather"
 assert_not_contains "${RESULT}" "要新建一个：bash scripts/ops/env_set.sh"
 
 # ---- 形状校验：字符全合法但形状不对，报错必须说"形状"，不许说"字符" ------------------
@@ -2642,7 +2683,7 @@ SCRIPT_UNDER_TEST="${SCRIPT}"
 # sw_env_alias / sw_env_warn 五处各有一格。少补一格的后果是：脚本在 `set -e` 下当场退出，
 # 而退出点离真正的原因很远（比如取正则那一步），排查起来很不友好。这里让它在测试里就红，
 # 并且直接说出是哪张表少了哪个键。
-case_name="scripts/ops/env_set.sh pins the whitelist to exactly twelve keys"
+case_name="scripts/ops/env_set.sh pins the whitelist to exactly thirteen keys"
 WHITELIST_LINE="$(sed -n 's/^SW_ENV_WHITELIST="\(.*\)"$/\1/p' "${SCRIPT}")"
 if [[ -z "${WHITELIST_LINE}" ]]; then
   fail_assertion "抽不出 SW_ENV_WHITELIST 那一行——抽取器失配了，下面整节会退化成空转"
@@ -2651,8 +2692,8 @@ fi
 # 这里**故意**词拆分：SW_ENV_WHITELIST 就是一张空格分隔的大写标识符表。
 whitelist_sorted="$(printf '%s\n' ${WHITELIST_LINE} | sort)"
 whitelist_count="$(printf '%s\n' "${whitelist_sorted}" | grep -c "" || true)"
-if [[ "${whitelist_count}" -ne 12 ]]; then
-  fail_assertion "SW_ENV_WHITELIST 里有 ${whitelist_count} 个键，本轮定死 12 个——真要加第十三个，请先按第 14 条那四问补齐五张表，并回来同步这条断言"
+if [[ "${whitelist_count}" -ne 13 ]]; then
+  fail_assertion "SW_ENV_WHITELIST 里有 ${whitelist_count} 个键，本轮定死 13 个——真要加第十四个，请先按第 14 条那四问补齐五张表，并回来同步这条断言"
 fi
 # 【这份禁入名单本轮又少了一个，理由要写清，别当成"放松了"】TELEGRAM_BOT_TOKEN 从这里移到了
 # 白名单上，因为第 14 条那四问已经逐条答过：取值形状（`<数字 bot_id>:<授权串>`，见
@@ -2660,18 +2701,26 @@ fi
 # （verify.sh 的确认通道那几格与 error_code=409 那一格）、**这个键特有的闸门**——而最后这一问
 # 正是本轮的实质工作：它是三级回落的第三级，闸门必须**同时**补到第三级，否则加键这件事本身
 # 就是在造一个活的缺口。
+# 【2026-08-26 这份禁入名单又少了一个：DEEPSEEK_API_KEY】理由同样是四问逐条答过，而且
+# 关键的第四问——**这个键特有的闸门**——它答得比上一批更干脆：一把 key 能不能用，
+# GET <baseURL>/models 就问得出来，所以有了 llm_key_live（跑在**本机**、ssh 之前，
+# 网关不认就拒绝写入）。这也正是它够格、而 TELEGRAM_CHAT_ID 仍然不够格的分界线：
+# 后者要问的"新会话真的收得到卡吗"不真发一条 Telegram 消息就验不了。
 # 剩下这几个一个都没答过，所以一个都不许进：
-#   TELEGRAM_CHAT_ID    它根本不是凭据，但改了会把 R1 确认卡导到另一个会话；而且它的值是
-#                       **从生产流出来**的（要在服务器上跑 core.telegram setup 才知道），
-#                       现有的表模型不了那个方向，"新会话真的收得到卡吗"这道闸门也验不了；
-#   三个 API key        它们只被 llm_backend_creds 当作"在不在"来读，没有自己的闸门。
-for forbidden_key in TELEGRAM_CHAT_ID ANTHROPIC_API_KEY DEEPSEEK_API_KEY SW_DSH_GATEWAY_API_KEY; do
+#   TELEGRAM_CHAT_ID       它根本不是凭据，但改了会把 R1 确认卡导到另一个会话；而且它的值是
+#                          **从生产流出来**的（要在服务器上跑 core.telegram setup 才知道），
+#                          现有的表模型不了那个方向，"新会话真的收得到卡吗"这道闸门也验不了；
+#   ANTHROPIC_API_KEY      同理还没有自己的闸门。它**可以**照 DEEPSEEK_API_KEY 的样子补一道
+#                          （Anthropic 官方端点也有可探的只读端点），但那是下一批的工作量，
+#                          不是顺手加个元素——名单为空的那一刻这条注释就该改。
+#   SW_DSH_GATEWAY_API_KEY 它只被 llm_backend_creds 当作"在不在"来读，没有自己的闸门。
+for forbidden_key in TELEGRAM_CHAT_ID ANTHROPIC_API_KEY SW_DSH_GATEWAY_API_KEY; do
   if printf '%s\n' "${whitelist_sorted}" | grep -qx "${forbidden_key}"; then
     fail_assertion "${forbidden_key} 进了白名单——这几个键的闸门还没想清楚（docs/RISKS.md 第 14 条如实记着这个缺口）"
   fi
 done
 # 反过来钉住：这两个凭据类键**必须**在白名单里，否则相关的整批用例会静默退化成"键不在名单上"。
-for required_key in SW_TELEGRAM_SIGNING_SECRET TELEGRAM_BOT_TOKEN; do
+for required_key in SW_TELEGRAM_SIGNING_SECRET TELEGRAM_BOT_TOKEN DEEPSEEK_API_KEY; do
   if ! printf '%s\n' "${whitelist_sorted}" | grep -qx "${required_key}"; then
     fail_assertion "${required_key} 不在白名单里——它那一批闸门用例会全部退化成无意义的拒绝"
   fi
@@ -2709,12 +2758,28 @@ policy_gates="$(printf '%s\n' "${policy_body}" | sed -n 's/.*POLICY_GATE="\([a-z
 if [[ -z "${policy_gates}" ]]; then
   fail_assertion "从 sw_env_policy 里抽不出任何 POLICY_GATE 值——抽取器失配了"
 else
+  # 【闸门分两类，判据不同】绝大多数闸门问的是"生产现在什么状态"，只有远端答得了，
+  # 所以远端那个 case 必须有同名分支，否则会撞上"无法识别的闸门名"那条纵深防御。
+  # llm_key_live 是**例外**：它问的是"网关认不认这把新 key"，值此刻就在本机手里，
+  # 送到远端再问等于先把可能是废值的东西写进生产 .env。它因此跑在 ssh 之前、
+  # 远端没有也不该有同名分支。这张名单就是"本机闸门"的白名单——新增一道本机闸门
+  # 必须回来加一行，不能靠 grep 不到就放过。
+  # 注：这里是脚本顶层，不是函数体，所以不能用 local
+  LOCAL_GATES="llm_key_live"
   for gate in ${policy_gates}; do
-    # 远端那个 case 必须有同名分支，否则这次变更会撞上"无法识别的闸门名"那条纵深防御。
+    if printf '%s\n' ${LOCAL_GATES} | grep -qx "${gate}"; then
+      # 本机闸门：反过来钉住它**不在**远端 case 里（真搬过去了就是设计变了，要回来改这条）
+      grep -q "^${gate})$" "${SCRIPT}" \
+        && fail_assertion "闸门 ${gate} 被登记为本机闸门，远端 case 里却出现了同名分支——两处必须一起想清楚"
+      # 并且它必须真的跑在 ssh 之前：ACTIVE_GATE 的判定块里有它
+      grep -q 'ACTIVE_GATE}" == "'"${gate}"'"' "${SCRIPT}" \
+        || fail_assertion "本机闸门 ${gate} 没有对应的 ACTIVE_GATE 执行块，等于派了个不存在的闸门"
+      continue
+    fi
     grep -q "^${gate})$" "${SCRIPT}" \
       || fail_assertion "本地派发了闸门 ${gate}，但远端 case 里没有同名分支"
   done
-  for gate in real_publish confirm_carrier llm_backend_creds wechat_certified wechat_claim signing_secret; do
+  for gate in real_publish confirm_carrier llm_backend_creds wechat_certified wechat_claim signing_secret llm_key_live; do
     printf '%s\n' "${policy_gates}" | grep -qx "${gate}" \
       || fail_assertion "闸门 ${gate} 没有任何键在用——要么是漏配了，要么该把它删掉"
   done
@@ -3014,6 +3079,141 @@ else
   [[ -z "${subset_violations}" ]] \
     || fail_assertion "bot token 形状放行了共用字符集之外的字符：${subset_violations}——那就得另起一套通路论证，而不是照抄"
 fi
+
+# ==================================================================================
+# DEEPSEEK_API_KEY —— 第四个凭据类键，第一个**不在签名密钥回落链上**的，
+# 也是第一个把闸门跑在**本机、ssh 之前**的（llm_key_live）。
+# ==================================================================================
+DS_KEY='TESTFAKE-deepseek-key_AAAAAAAAAAAAAAAAAAAA'
+
+CRED_MISSING=0
+CRED_CONTENT="sw_ui_token: ${UI_TOKEN}
+deepseek_api_key: ${DS_KEY}
+"
+ENV_CONTENT="${ENV_DEFAULT}"
+
+# ---- 取值方式：只走 --from-credentials -------------------------------------------
+run_case "DEEPSEEK_API_KEY refuses --generate（值由模型网关签发，本机造不出来）" \
+  --key DEEPSEEK_API_KEY --generate
+assert_rejected_before_remote
+assert_contains "${RESULT}" "DEEPSEEK_API_KEY 不能 --generate"
+# 【这条是本轮的重点】拒绝文案必须说**这个键**的签发方，不能照抄 bot token 那一段。
+# 上一版它是写死的，DEEPSEEK_API_KEY 一进名单就会得到一句"去 @BotFather 拿"——
+# 一次回答得很确定的错答。这两条断言就是钉住它不许再退回去。
+assert_contains "${RESULT}" "模型网关的控制台"
+assert_not_contains "${RESULT}" "BotFather"
+assert_not_contains "${RESULT}" "Telegram 不认"
+# 被拒时凭据文件里那一行一个字节都不该被动过
+assert_contains "$(<"${CRED_FILE}")" "deepseek_api_key: ${DS_KEY}"
+
+run_case "DEEPSEEK_API_KEY refuses --value（API key 绝不进 argv）" \
+  --key DEEPSEEK_API_KEY --value "${DS_KEY}"
+assert_rejected_before_remote
+assert_value_absent_from_argv "${DS_KEY}"
+
+# ---- llm_key_live：网关认，才写 ---------------------------------------------------
+run_case "llm_key_live passes when the gateway accepts the key" \
+  SW_OPS_DEEPSEEK_BASE_URL=https://gw.test/v1 \
+  --key DEEPSEEK_API_KEY --from-credentials
+assert_status 0
+assert_contains "${RESULT}" "闸门 llm_key_live"
+# 探过的 host 必须打出来：这道闸门只探值班机认识的网关，人得自己对一眼
+assert_contains "${RESULT}" "host=gw.test"
+assert_contains "${RESULT}" "通过：网关认这把 key（HTTP 200）"
+assert_contains "${ENV_AFTER}" "DEEPSEEK_API_KEY=${DS_KEY}"
+# 值一次都不许进 argv，也一次都不许出现在输出里
+assert_value_absent_from_argv "${DS_KEY}"
+assert_not_contains "${RESULT}" "${DS_KEY}"
+# 闸门真的把 key 送出去了（--config - 那条通路），而不是空探一次就放行
+assert_contains "${AUTH_LOG}" "Authorization: Bearer ${DS_KEY}"
+assert_contains "${AUTH_LOG}" "https://gw.test/v1/models"
+
+# ---- llm_key_live：网关拒绝 → 退 47，远端一个字节都没动 ----------------------------
+run_case "llm_key_live refuses a key the gateway rejects（401）" \
+  SW_OPS_DEEPSEEK_BASE_URL=https://gw.test/v1 TEST_LLM_MODELS_HTTP_CODE=401 \
+  --key DEEPSEEK_API_KEY --from-credentials
+assert_status 47
+assert_not_contains "${LOG}" "ssh <"
+assert_not_contains "${LOG}" "backup <"
+assert_contains "${RESULT}" "模型网关不认这把 key（HTTP 401）"
+assert_contains "${RESULT}" "**生产 .env 一个字节都没动**"
+assert_not_contains "${RESULT}" "${DS_KEY}"
+
+run_case "llm_key_live treats 403 the same as 401" \
+  SW_OPS_DEEPSEEK_BASE_URL=https://gw.test/v1 TEST_LLM_MODELS_HTTP_CODE=403 \
+  --key DEEPSEEK_API_KEY --from-credentials
+assert_status 47
+
+# ---- llm_key_live：探不到 → 退 48（与"网关拒绝"是两件事，两个码）------------------
+run_case "llm_key_live fails closed when the gateway is unreachable" \
+  SW_OPS_DEEPSEEK_BASE_URL=https://gw.test/v1 TEST_LLM_MODELS_CURL_STATUS=7 \
+  --key DEEPSEEK_API_KEY --from-credentials
+assert_status 48
+assert_not_contains "${LOG}" "ssh <"
+assert_contains "${RESULT}" "**探不到**模型网关"
+assert_contains "${RESULT}" "**生产 .env 一个字节都没动**"
+
+# 500 不是"网关说这把 key 不行"，是"网关自己不舒服"——必须归到"不知道"那一档，
+# 否则一次上游抖动会被报成"你的 key 废了"，那是一次回答得很确定的错答。
+run_case "a 500 from the gateway is 'unknown', not 'the key is bad'" \
+  SW_OPS_DEEPSEEK_BASE_URL=https://gw.test/v1 TEST_LLM_MODELS_HTTP_CODE=500 \
+  --key DEEPSEEK_API_KEY --from-credentials
+assert_status 48
+
+# ---- 这个键不在签名密钥回落链上 ----------------------------------------------------
+# 有 7 张待人点的确认卡也照写：换它动不到任何一张卡的签名。这一条同时反证闸门没有被
+# 顺手接到 signing_secret 上——那会让一个与确认卡无关的键被确认卡挡住。
+run_case "DEEPSEEK_API_KEY is not on the signing chain（有待点的卡也照写）" \
+  SW_OPS_DEEPSEEK_BASE_URL=https://gw.test/v1 TEST_AWAITING_CONFIRM=7 \
+  --key DEEPSEEK_API_KEY --from-credentials
+assert_status 0
+assert_not_contains "${LOG}" "/api/v1/dashboard"
+assert_contains "${ENV_AFTER}" "DEEPSEEK_API_KEY=${DS_KEY}"
+
+run_case "--accept-breaking-pending-confirm-cards is meaningless for DEEPSEEK_API_KEY" \
+  SW_OPS_DEEPSEEK_BASE_URL=https://gw.test/v1 \
+  --key DEEPSEEK_API_KEY --from-credentials --accept-breaking-pending-confirm-cards
+assert_rejected_before_remote
+assert_contains "${RESULT}" "没有意义"
+
+# ---- 有闸门 ⇒ 禁用 --write-only ----------------------------------------------------
+# 理由与 bot token 那条同源：新 key 写进 .env 而容器没重建时，运行中的 core 还拿着旧 key，
+# 而"生效"整段被跳过了，闸门也就白跑了。
+run_case "--write-only is refused for DEEPSEEK_API_KEY" \
+  SW_OPS_DEEPSEEK_BASE_URL=https://gw.test/v1 \
+  --key DEEPSEEK_API_KEY --from-credentials --write-only
+assert_rejected_before_remote
+
+# ---- 形状校验：拦得住"粘错了东西" --------------------------------------------------
+# 拦不住"这把 key 到底能不能用"——那是 llm_key_live 的活。两道各管各的，这里只证前一半。
+for bad_value in 'https://api.example.com/v1' 'sk-with space' 'short' 'has"quote'; do
+  CRED_CONTENT="deepseek_api_key: ${bad_value}
+"
+  run_case "a malformed DEEPSEEK_API_KEY is refused before the gateway is even asked" \
+    SW_OPS_DEEPSEEK_BASE_URL=https://gw.test/v1 \
+    --key DEEPSEEK_API_KEY --from-credentials
+  assert_rejected_before_remote
+  # 形状不对时**根本不该去打网关**：拿一个明显不是 key 的东西去问上游是白费一次往返
+  assert_not_contains "${LOG}" "/models"
+  assert_not_contains "${RESULT}" "${bad_value}"
+done
+CRED_CONTENT="sw_ui_token: ${UI_TOKEN}
+deepseek_api_key: ${DS_KEY}
+"
+
+# ---- 凭据文件里没有这一行时，指引要说清去哪儿拿 -------------------------------------
+CRED_CONTENT="sw_ui_token: ${UI_TOKEN}
+"
+run_case "a credentials file without deepseek_api_key falls back to a clear hint" \
+  SW_OPS_DEEPSEEK_BASE_URL=https://gw.test/v1 \
+  --key DEEPSEEK_API_KEY --from-credentials
+assert_rejected_before_remote
+assert_contains "${RESULT}" "deepseek_api_key"
+CRED_CONTENT="sw_ui_token: ${UI_TOKEN}
+deepseek_api_key: ${DS_KEY}
+"
+ENV_CONTENT="${ENV_DEFAULT}"
+
 
 if [[ "${failures}" -ne 0 ]]; then
   printf 'env_set.sh mechanical tests failed: %s assertion(s)\n' "${failures}" >&2

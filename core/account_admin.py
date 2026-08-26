@@ -349,6 +349,13 @@ def create_account(session: Session, draft: AccountDraft) -> tuple[Account, list
         daily_target=draft.daily_target if draft.daily_target is not None else 0,
         timezone=draft.timezone or default_timezone(),
         persona=draft.persona,
+        # P12 的两个开关必须原样抄过来。这里重建 draft 只是为了填 id / 端口 / 时区的
+        # 默认值，漏抄任何一个字段的后果都是**静默忽略**：HTTP 201、其余字段都对，
+        # 只有漏掉的那个是默认值。2026-08-26 在生产上就是这么撞上的——建号时传了
+        # autopilot=true，稿子却全卡在待审核。update_account 不重建 draft，所以那条路
+        # 一直是对的，这个缺口才一直没露头。
+        autopilot=draft.autopilot,
+        confirm_required=draft.confirm_required,
     )
     entry = build_entry(account_id, resolved, port=port)
     _precheck(entry)

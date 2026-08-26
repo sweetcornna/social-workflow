@@ -171,6 +171,47 @@ def test_create_writes_ledger_then_db_without_drift(client):
     _assert_no_drift()
 
 
+def test_create_honours_the_p12_switches(client):
+    """建号时传的 ``autopilot`` / ``confirm_required`` 必须真的落到台账与库里。
+
+    2026-08-26 在生产上撞到的：建号 API 的文档与 pydantic 模型都收这两个字段，
+    ``build_entry`` 也会写，但 ``account_admin.create_account`` 在中间**重建了一次
+    AccountDraft**（为了填 id / 端口 / 时区默认值）而漏抄这两个键，于是它们退回 None，
+    ``build_entry`` 就当"没传"。表现是**静默忽略**：HTTP 201、其余字段都对，只有这两个
+    开关是默认值。PATCH 那条路不重建 draft，所以改一次就好了——这也是它一直没被发现的原因。
+
+    这条用例同时钉两个方向：显式打开要真的开，显式关掉也要真的关（``confirm_required``
+    往关的方向是红线 R1 的相反面，更不能悄悄变回默认值让人以为关掉了）。
+    """
+    _write_ledger(LEDGER_WITH_COMMENTS)
+    data = _create_xhs(client, autopilot=True, confirm_required=False)
+    account_id = data["account"]["id"]
+
+    policy = data["account"]["policy"]
+    assert policy["autopilot"] is True, "显式打开 autopilot 被静默忽略了"
+    assert policy["confirm_required"] is False, "显式关掉 confirm_required 被静默忽略了"
+
+    # 台账是唯一真相：文件里也得有，否则下一次 sync 会把库里的值冲掉
+    text = _ledger_text()
+    assert "autopilot: true" in text
+    assert "confirm_required: false" in text
+
+    with db.session_scope() as session:
+        row = session.get(Account, account_id)
+        assert row is not None
+        assert (row.extra or {}).get("autopilot") is True
+        assert (row.extra or {}).get("confirm_required") is False
+    _assert_no_drift()
+
+
+def test_create_defaults_the_p12_switches_when_not_given(client):
+    """没传就用默认：autopilot 关、confirm_required 开（R1 的安全方向）。"""
+    _write_ledger(LEDGER_WITH_COMMENTS)
+    policy = _create_xhs(client)["account"]["policy"]
+    assert policy["autopilot"] is False
+    assert policy["confirm_required"] is True
+
+
 def test_create_allocates_the_next_free_port(client):
     """一账号一端口：台账里占了 18060，新号必须往后挪。"""
     _write_ledger(LEDGER_WITH_COMMENTS)

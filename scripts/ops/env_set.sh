@@ -42,7 +42,18 @@
 # 判定不按键名分支，按"回落链上排在它前面的那几级里有没有非空的"，真值表写在远端那道闸门上方。
 # bot token 还是第一个**不能 --generate** 的凭据类键：值由 BotFather 签发，本机 CSPRNG 造不出来。
 # 这一格同样做成按键表上的一格（POLICY_CRED_ORIGIN），不是在取值路径里硬写一个键名。
-# 其余凭据类键（TELEGRAM_CHAT_ID / 各种 API key）**仍然不在名单上**，第 14 条里如实保留
+# 凭据类键 2026-08-26 补到**第四个**：DEEPSEEK_API_KEY。它与上面三个的差别值得单写一段——
+# 它是第一个**不在签名密钥回落链上**的凭据类键，所以 POLICY_SIGNING_ABOVE 是 `-`、闸门也
+# 不是 signing_secret，而是自己那道 llm_key_live：写之前在**本机**拿这把新值真的去问一次模型
+# 网关，网关不认就拒绝写入。加它的直接原因是 2026-08-26 生产上那把 key 失效——tick_generate
+# 每个账号都撞 401，而 /health 与 /api/v1/system/info 一格都不红，工具面却补不了它，人当时
+# 只剩"放着不动"和"临时突破 R3"两个选择，正是第 14 条要防的那一幕。
+# 它的闸门**答得出自己那一问**，这是它够格进名单而 TELEGRAM_CHAT_ID 不够格的分界线：
+# 一把 key 能不能用，GET /models 就问得出来；而"新会话收不收得到卡"不真发一条消息验不了。
+# 这道闸门有一处**必须说清的边界**：生产 .env 的 SW_DSH_DEEPSEEK_BASE_URL 不在白名单上、
+# 本工具面读不到，所以它只能探值班机认识的那个网关——因此它把探过的 host 打出来让人对一眼，
+# 而不是假装知道生产指着哪儿（同 wechat_claim 那一格"不假装答得了"的口径）。
+# 其余凭据类键（TELEGRAM_CHAT_ID / 其它 API key）**仍然不在名单上**，第 14 条里如实保留
 # 它们仍无路径；TELEGRAM_CHAT_ID 尤其不能顺手加——它的值是**从生产流出来**的（要在服务器上
 # 跑 core.telegram setup 才知道），现有的表模型不了那个方向，而且"新会话可达没有"这道闸门
 # 不真发一条 Telegram 消息根本验不了。
@@ -91,6 +102,12 @@ ENV_WECHAT_CERT_STATUS=43     # WECHAT_AUTO_PUBLISH=true 但 WECHAT_CERTIFIED �
 # "探到了，不行" 与 "没探到" 必须是两个码，因为处置动作不同。同样都发生在**写 `.env` 之前**。
 ENV_SIGNING_GATE_STATUS=45    # 签名密钥轮换：探到了，还有待人点的确认卡，拒绝换密钥
 ENV_SIGNING_PROBE_STATUS=46   # 同上方向，但读不出待人点的确认卡条数，也就是"不知道"
+# 下面两个是 DEEPSEEK_API_KEY 那道 llm_key_live 闸门的，方向与 37/38、39/40、45/46 一致：
+# "探到了，不行" 与 "没探到" 必须是两个码。它有一处**与上面几道都不同**：这道闸门跑在
+# **本机**、在 ssh 之前——它要问的是"网关认不认这把新 key"，而那把 key 此刻只在本机手里，
+# 送到远端再问等于先把一个可能是废值的东西写进生产 .env。触发时远端一个字节都没动过。
+ENV_LLM_KEY_GATE_STATUS=47    # 探到了，模型网关拒绝这把新 key（401/403），拒绝写入
+ENV_LLM_KEY_PROBE_STATUS=48   # 同上方向，但没探到（连不上 / 超时 / 网关地址不知道），也就是"不知道"
 
 die() { printf '\n✗ %s\n' "${1}" >&2; shift; for line in "$@"; do printf '  %s\n' "${line}" >&2; done; exit 1; }
 # 与 die 逐字同样的输出，只是退出码由调用方给。
@@ -126,7 +143,7 @@ usage() {
       把本机已持有的那个值推到生产 .env。用于"两边不一致"的收敛，也用于 --generate 推送
       失败后的重试。SW_UI_TOKEN 额外先看环境变量 SW_OPS_UI_TOKEN（那一层是它专有的）。
 
-白名单（十二个键，写死在脚本里，**不接受运行时扩展**）：
+白名单（十三个键，写死在脚本里，**不接受运行时扩展**）：
   SW_UI_TOKEN                  凭据          只走 --generate / --from-credentials，值永不回显
                                              闸门：生产 .env 里 SW_TELEGRAM_SIGNING_SECRET 为空时，
                                              换它就是换确认卡的签名密钥 —— 有待人点的卡就拒绝
@@ -138,6 +155,10 @@ usage() {
                                              闸门：它是三级回落的**第三级**——上面两级都为空时
                                              换它就是换签名密钥，那时有待人点的卡就拒绝
                                              另注：旧 token 立即失效，而 polling 那一格照样报 true
+  DEEPSEEK_API_KEY             凭据          只走 --from-credentials：值由模型网关签发，本机造不
+                                             出来，--generate 会被拒绝。**不在签名密钥回落链上**
+                                             闸门：llm_key_live —— 写之前在**本机**拿这把新值探一次
+                                             网关 GET <baseURL>/models，网关不认（401/403）就拒绝写入
   SW_USE_FAKE_PUBLISHERS       true|false    false = 真发布开启
                                              闸门：先探人工确认通道，不活就拒绝写入
   SW_LLM_BACKEND               anthropic|dsh 闸门：目标后端的凭据必须在生产 .env 里存在且非空
@@ -220,7 +241,7 @@ USAGE
 # 白名单的**唯一真相源**。sw_env_policy / sw_env_value_re / --show 都从这里派生，
 # tests/ops/test_env_set.sh 有一条源码级断言核对"这张表与 sw_env_policy 的分支一一对应"——
 # 少一格、多一格、拼错一个字都会红。
-SW_ENV_WHITELIST="SW_UI_TOKEN SW_TELEGRAM_SIGNING_SECRET TELEGRAM_BOT_TOKEN SW_USE_FAKE_PUBLISHERS SW_LLM_BACKEND SW_GENERATE_ENABLED SW_TELEGRAM_ENABLED WECHAT_AUTO_PUBLISH WECHAT_CERTIFIED DAILY_TOKEN_BUDGET DAILY_RENDER_SECONDS_BUDGET DAILY_IMAGE_BUDGET"
+SW_ENV_WHITELIST="SW_UI_TOKEN SW_TELEGRAM_SIGNING_SECRET TELEGRAM_BOT_TOKEN DEEPSEEK_API_KEY SW_USE_FAKE_PUBLISHERS SW_LLM_BACKEND SW_GENERATE_ENABLED SW_TELEGRAM_ENABLED WECHAT_AUTO_PUBLISH WECHAT_CERTIFIED DAILY_TOKEN_BUDGET DAILY_RENDER_SECONDS_BUDGET DAILY_IMAGE_BUDGET"
 
 POLICY_VALUE_SOURCE=""
 POLICY_DISPLAY=""
@@ -248,6 +269,14 @@ sw_env_policy() {
       POLICY_CRED_KEY="${SW_OPS_CREDENTIALS_TELEGRAM_BOT_TOKEN_KEY}"
       POLICY_CRED_ORIGIN="external-issuer"
       POLICY_SIGNING_ABOVE="SW_TELEGRAM_SIGNING_SECRET SW_UI_TOKEN" ;;
+    DEEPSEEK_API_KEY)
+      # 第一个**不在签名密钥回落链上**的凭据类键，所以 SIGNING_ABOVE 是 `-` 而不是链上的某一级：
+      # 改它动不到任何一张确认卡。value_source 仍然是 credentials —— API key 绝不能走 --value，
+      # 那会把它留在 shell 历史与 /proc/*/cmdline 里，而这个键的值恰恰是最值钱的那类。
+      POLICY_VALUE_SOURCE="credentials"; POLICY_DISPLAY="secret"; POLICY_GATE="llm_key_live"
+      POLICY_CRED_KEY="${SW_OPS_CREDENTIALS_DEEPSEEK_API_KEY_KEY}"
+      POLICY_CRED_ORIGIN="external-issuer"
+      POLICY_SIGNING_ABOVE="-" ;;
     SW_USE_FAKE_PUBLISHERS)
       POLICY_VALUE_SOURCE="argv"; POLICY_DISPLAY="plain"; POLICY_GATE="real_publish"
       POLICY_CRED_KEY="-"; POLICY_CRED_ORIGIN="-"; POLICY_SIGNING_ABOVE="-" ;;
@@ -353,6 +382,19 @@ sw_env_value_re() {
     # SW_OPS_UI_TOKEN_ALLOWED_RE 里面，是它的**真子集**，所以上面那条通路论证原样适用。
     # tests/ops/test_env_set.sh 有一条逐字符的源码级断言钉住这个子集关系。
     TELEGRAM_BOT_TOKEN) printf '%s' '^[0-9]{5,16}:[A-Za-z0-9_-]{30,64}$' ;;
+    # 【为什么不钉 `sk-` 前缀、也不钉具体长度】这把 key 由**模型网关**签发，而生产接的是
+    # 自建/私有网关（configs/dsh/cordis.yml 的 deepseek 路由，baseURL 由 SW_DSH_DEEPSEEK_BASE_URL
+    # 注入），不是 DeepSeek 官方端点。官方 key 是 `sk-` + 32 位十六进制，私有网关想发什么形状
+    # 就发什么形状——钉 `sk-` 等于赌上游，赌错就是"工具面告诉你该换、却换不了"，正是本仓
+    # 反复修过的那种病。所以这里只钉两件**确定**的事：
+    #   · 字符集 A-Za-z0-9_-：它是 SW_OPS_UI_TOKEN_ALLOWED_RE 的**真子集**，
+    #     所以 printf %q → ssh stdin → 远端 export → 写进 .env 这条通路的论证原样适用，
+    #     不必重新论证一遍（同 TELEGRAM_BOT_TOKEN 那一格的口径）。
+    #   · 长度 20-200：宽到不误伤（本机手上那把是 67），窄到能拦住粘错的东西。
+    # 拦得住的是"粘错了": URL、带引号或空白的值、整段 JSON、一行 `KEY=value`。
+    # **拦不住的是"这把 key 到底能不能用"**——那正是 llm_key_live 那道闸门的活：
+    # 它在写之前拿这把值真的去问一次网关。形状与可用性是两件事，两道各管各的。
+    DEEPSEEK_API_KEY) printf '%s' '^[A-Za-z0-9_-]{20,200}$' ;;
     # 布尔五连：core/config.py:53 / :82 / :351 / :233 / :231 都声明成 bool
     SW_USE_FAKE_PUBLISHERS|SW_GENERATE_ENABLED|SW_TELEGRAM_ENABLED|WECHAT_AUTO_PUBLISH|WECHAT_CERTIFIED)
       printf '%s' '^(true|false)$' ;;
@@ -376,6 +418,8 @@ sw_env_value_help() {
       printf '%s' '凭据，不经 --value 传（用 --generate / --from-credentials）' ;;
     TELEGRAM_BOT_TOKEN)
       printf '%s' '<数字 bot_id>:<授权串>，由 BotFather 签发 —— 本机造不出来，所以没有 --generate，只走 --from-credentials' ;;
+    DEEPSEEK_API_KEY)
+      printf '%s' '模型网关签发的 API key（A-Za-z0-9_- 共 20-200 位）—— 本机造不出来，所以没有 --generate，只走 --from-credentials' ;;
     SW_USE_FAKE_PUBLISHERS|SW_GENERATE_ENABLED|SW_TELEGRAM_ENABLED|WECHAT_AUTO_PUBLISH|WECHAT_CERTIFIED)
       printf '%s' 'true 或 false —— 只认这两个**小写单词**' ;;
     SW_LLM_BACKEND) printf '%s' 'anthropic 或 dsh —— 以 core/config.py:99 的 Literal 声明为准' ;;
@@ -395,10 +439,35 @@ sw_env_value_help() {
 sw_env_alias() {
   case "$1" in
     DAILY_IMAGE_BUDGET) printf '%s' 'SW_DAILY_IMAGE_BUDGET' ;;
-    SW_UI_TOKEN|SW_TELEGRAM_SIGNING_SECRET|TELEGRAM_BOT_TOKEN|SW_USE_FAKE_PUBLISHERS|SW_LLM_BACKEND|SW_GENERATE_ENABLED)
+    SW_UI_TOKEN|SW_TELEGRAM_SIGNING_SECRET|TELEGRAM_BOT_TOKEN|DEEPSEEK_API_KEY|SW_USE_FAKE_PUBLISHERS|SW_LLM_BACKEND|SW_GENERATE_ENABLED)
       printf '%s' '-' ;;
     SW_TELEGRAM_ENABLED|WECHAT_AUTO_PUBLISH|WECHAT_CERTIFIED|DAILY_TOKEN_BUDGET|DAILY_RENDER_SECONDS_BUDGET)
       printf '%s' '-' ;;
+    *) return 1 ;;
+  esac
+}
+
+# 【外部签发的凭据：签发方是谁、去哪儿拿、造个假的会怎样】
+# 只覆盖 POLICY_CRED_ORIGIN=external-issuer 的那几个键，其余一律 return 1（调用方也只在
+# 那个分支里用它）。tests/ops/test_env_set.sh 拿 sw_env_keys_where cred_origin external-issuer
+# 反过来钉住这张表的覆盖面，不许漏。
+#
+# 【为什么必须按键分，而不是共用一段话】上一版这两句文案是**写死给 bot token 的**
+# （"人去 @BotFather 拿"、"Telegram 不认的 token"）。DEEPSEEK_API_KEY 一进名单，
+# `--key DEEPSEEK_API_KEY --generate` 就会得到一句"去 @BotFather 拿"——一次回答得很确定的
+# 错答，正是这一整份脚本反复在拒绝的那类。上面那段注释当时就预言了它（"第二个这样的键
+# 一进来就会静默走错路"），2026-08-26 果然撞上，所以这里把它拆成表。
+# 用法：sw_env_cred_issuer <键> <where|impact>
+sw_env_cred_issuer() {
+  case "$1-$2" in
+    TELEGRAM_BOT_TOKEN-where)
+      printf '%s' 'Telegram 的 @BotFather（/mybots → API Token 看现有的，/revoke 换一个新的）' ;;
+    TELEGRAM_BOT_TOKEN-impact)
+      printf '%s' '生成一个 256 bit 随机值推到生产，只会让 core 拿着一个 Telegram 不认的 token。而且那种失败**不响**——长轮询线程不会退出，它按 2s→120s 退避无限重试（core/telegram.py:810-831），而 /api/v1/system/telegram 的 polling 只看线程活没活（core/telegram.py:978-988），照样报 true。假 token 会静悄悄地把确认卡通道弄死。' ;;
+    DEEPSEEK_API_KEY-where)
+      printf '%s' '模型网关的控制台（本仓接的是自建/私有网关，见 configs/dsh/cordis.yml 的 deepseek 路由与 SW_DSH_DEEPSEEK_BASE_URL）' ;;
+    DEEPSEEK_API_KEY-impact)
+      printf '%s' '生成一个随机值推到生产，网关一个字都不认：此后每次出稿都撞 LLMUnavailable「dsh 请求失败[AUTH]: 401」，而 /health 与 /api/v1/system/info 一格都不会红——core 活得好好的，死的是生成链。不过这一条**当场就会被拦下**：llm_key_live 闸门写之前先问网关，随机值必然 401。' ;;
     *) return 1 ;;
   esac
 }
@@ -451,6 +520,19 @@ sw_env_warn() {
       note "        所以这一格只做**提示**：换完之后跑一次 bash scripts/ops/verify.sh，看「Telegram 轮询冲突（error_code=409）」那一格。"
       note "        真撞上 409，处置是让另一个部署停下来、或给它换一个 bot，而**不是**再换一次 token（再换一次只会把冲突原样搬到新 token 上）。"
       note "取值：本机造不出来（值由 BotFather 签发），所以**没有 --generate**。人拿到之后写进 ${CRED_FILE} 的 ${SW_OPS_CREDENTIALS_TELEGRAM_BOT_TOKEN_KEY} 键（0600），再 --from-credentials 推上去。"
+      ;;
+    DEEPSEEK_API_KEY)
+      warn "这把 key 是 dsh 后端打模型网关的**唯一凭据**（configs/dsh/cordis.yml 的 deepseek / deepseek-official 两条路由都用它）。"
+      note "        换错 / 换成废值的表现是**出稿整批失败**：tick_generate 每个账号都撞 LLMUnavailable「dsh 请求失败[AUTH]: 401」，"
+      note "        而 /health 与 /api/v1/system/info 一格都不会红——core 本身活得好好的，死的是生成链。2026-08-26 生产上就是这个形状。"
+      note "闸门：所以它有自己的事前闸门 llm_key_live，跑在**本机、ssh 之前**：拿这把新值真的去问一次网关（GET <baseURL>/models）。"
+      note "      网关认（2xx）才写；401/403 直接拒绝，生产 .env 一个字节不动；探不到（连不上 / 超时 / 不知道网关地址）也拒绝——fail-closed。"
+      note "      探哪个网关：SW_OPS_DEEPSEEK_BASE_URL > SW_DSH_DEEPSEEK_BASE_URL > 本仓 .env 里的同名键 > https://api.deepseek.com。"
+      note "      **闸门会把探过的 host 打出来**：它探的是值班机认识的那个网关，而生产 .env 里的 SW_DSH_DEEPSEEK_BASE_URL 不在白名单上、本工具面读不到。"
+      note "      两边指向不同网关时这道闸门就问错了地方——所以那一行必须自己看一眼，别当它是废话。"
+      note "签名密钥：**无关**。它不在 core/telegram.py:151-154 那条三级回落链上，改它不会让任何一张已推出去的确认卡失效，"
+      note "        所以 --accept-breaking-pending-confirm-cards 对它没有意义（给了会被拒）。"
+      note "取值：本机造不出来（值由模型网关签发），所以**没有 --generate**。人从网关控制台拿到之后写进 ${CRED_FILE} 的 ${SW_OPS_CREDENTIALS_DEEPSEEK_API_KEY_KEY} 键（0600），再 --from-credentials 推上去。"
       ;;
     SW_USE_FAKE_PUBLISHERS)
       if [[ "${VALUE}" == "false" ]]; then
@@ -783,7 +865,12 @@ case "${POLICY_VALUE_SOURCE}" in
     if [[ "${POLICY_CRED_ORIGIN}" == "external-issuer" ]]; then
       CRED_WAYS="--from-credentials（推送本机已持有的那个）"
       CRED_NEED="${KEY} 需要 --from-credentials（它**没有** --generate 这条路：值由外部签发，本机造不出来）"
-      CRED_NEW_HINT="值从哪儿来：人去 @BotFather 拿（/mybots → API Token 看现有的，/revoke 换一个新的），再自己写进 ${CRED_FILE} 的 ${POLICY_CRED_KEY} 键（0600，顶格一行 ${POLICY_CRED_KEY}: <值>）。**本脚本造不出这个值**，所以它没有 --generate。"
+      CRED_WHERE="$(sw_env_cred_issuer "${KEY}" where)" || die \
+        "内部错误：${KEY} 被标成 external-issuer，但 sw_env_cred_issuer 里没有它那一格" \
+        "这两处必须配对：少一格就会退回一句写死给别的键的指引，那是一次回答得很确定的错答。" \
+        "补上 sw_env_cred_issuer 的 ${KEY}-where 与 ${KEY}-impact 两格再重跑。"
+      CRED_IMPACT="$(sw_env_cred_issuer "${KEY}" impact)" || CRED_IMPACT=""
+      CRED_NEW_HINT="值从哪儿来：${CRED_WHERE}。人自己去拿，再写进 ${CRED_FILE} 的 ${POLICY_CRED_KEY} 键（0600，顶格一行 ${POLICY_CRED_KEY}: <值>）。**本脚本造不出这个值**，所以它没有 --generate。"
     else
       CRED_WAYS="--generate（本机生成一个新的）或 --from-credentials（推送本机已持有的那个）"
       CRED_NEED="${KEY} 需要 --generate 或 --from-credentials 二选一"
@@ -795,8 +882,8 @@ case "${POLICY_VALUE_SOURCE}" in
       "改用 ${CRED_WAYS}。"
     if [[ "${POLICY_CRED_ORIGIN}" == "external-issuer" && "${TOKEN_SOURCE_MODE}" == "generate" ]]; then
       die "${KEY} 不能 --generate" \
-        "它的值由**外部**签发（bot token 来自 Telegram 的 @BotFather），本机的 CSPRNG 造不出来：生成一个 256 bit 随机值推到生产，只会让 core 拿着一个 Telegram 不认的 token。" \
-        "而且那种失败**不响**——长轮询线程不会退出，它按 2s→120s 退避无限重试（core/telegram.py:810-831），而 /api/v1/system/telegram 的 polling 只看线程活没活（core/telegram.py:978-988），照样报 true。也就是说 --generate 出来的假 token 会静悄悄地把确认卡通道弄死。" \
+        "它的值由**外部**签发（${CRED_WHERE}），本机的 CSPRNG 造不出来。" \
+        "${CRED_IMPACT}" \
         "正确做法：${CRED_NEW_HINT}" \
         "写好之后：bash scripts/ops/env_set.sh --key ${KEY} --from-credentials" \
         "值绝不要念给编排方听、也绝不要经 --value 传（红线 R5、docs/RISKS.md §8.2）。"
@@ -864,6 +951,10 @@ esac
 #                     得来"。切到哪一边都要求那一边的凭据在 .env 里就位——这条闸门的全部
 #                     意义就是不让"回退"把 core 换到一个起不来的后端上（docs/RISKS.md 第 14 条
 #                     点名它是代价最高的那个键，难点正在这里，不在校验值本身）。
+#   llm_key_live      **没有方向可言**，同 signing_secret：凭据类键没有 ${VALUE}，"往哪个方向改"
+#                     这个问题在它身上不成立。能问的只有"这把新 key 网关认不认"，而那一问
+#                     **在本机就答得了**——值此刻正在本机手里。所以它是唯一一道跑在 ssh
+#                     之前的闸门（其余几道都要读生产 .env 或打生产 /api/v1）。
 #   signing_secret    **没有方向可言**，所以凭据类键上一律无条件点亮。这不是偷懒：
 #                     凭据类键根本没有 ${VALUE}（值不进 argv），"往哪个方向改"这个问题在
 #                     它们身上不成立；能问的只有"这次写入会不会换掉生效的签名密钥"，
@@ -882,6 +973,8 @@ elif [[ "${POLICY_GATE}" == "llm_backend_creds" ]]; then
   ACTIVE_GATE="llm_backend_creds"
 elif [[ "${POLICY_GATE}" == "signing_secret" ]]; then
   ACTIVE_GATE="signing_secret"
+elif [[ "${POLICY_GATE}" == "llm_key_live" ]]; then
+  ACTIVE_GATE="llm_key_live"
 fi
 
 # override 只对 signing_secret 有意义，别的方向给了就是拿错了旗子——静默忽略会让人以为
@@ -892,6 +985,16 @@ if [[ "${ACCEPT_BREAKING}" -eq 1 && "${ACTIVE_GATE}" != "signing_secret" ]]; the
     "有这道闸门的是这几个凭据类键（从白名单派生，不是手写的第二份名单）：$(sw_env_keys_where gate signing_secret)。" \
     "本次要改的 ${KEY} 与签名密钥无关，去掉这个旗子重跑。"
 fi
+
+# 【送给远端的闸门名 ≠ 本机的 ACTIVE_GATE】远端有一层纵深防御：闸门名不在它认得的那张表里
+# 就拒绝执行。本机闸门（llm_key_live）在 ssh 之前就跑完了，远端**没有也不该有**同名分支——
+# 直接把 ACTIVE_GATE 传过去会被那层防御当场拦下，而那是一次误报：闸门明明已经过了。
+# 所以这里显式归一成 none，并把"哪些是本机闸门"写成一张表，与 tests/ops/test_env_set.sh
+# 里 LOCAL_GATES 那张表配对——新增一道本机闸门要同时改这两处。
+REMOTE_GATE="${ACTIVE_GATE}"
+case "${ACTIVE_GATE}" in
+  llm_key_live) REMOTE_GATE="none" ;;
+esac
 
 GATE_REAL_PUBLISH=0
 GATE_SIGNING_SECRET=0
@@ -1073,6 +1176,57 @@ if ! sw_ops_env_value_matches "${VALUE_RE}"; then
   else
     die "${KEY} 的值不合法：${SW_OPS_ENV_VALUE}"
   fi
+fi
+
+# ------------------------------------------------- 事前闸门：llm_key_live（本机跑）
+#
+# 【它为什么在这儿、而不在远端那段里】其余每一道事前闸门问的都是"生产现在是什么状态"，
+# 只有远端答得了；这一道问的是"网关认不认这把新 key"，而那把 key 此刻正在**本机**手里。
+# 送到远端再问，等于先把一个可能是废值的东西写进生产 .env——闸门就成了事后检测。
+# 所以它跑在 ssh 之前：不通过时远端一个字节都没动过，连备份都没建。
+#
+# 【它探的是哪个网关，以及这件事的诚实边界】生产 .env 里的 SW_DSH_DEEPSEEK_BASE_URL
+# **不在白名单上**，本工具面读不到，所以这道闸门只能探值班机认识的那个网关。两边指向同一个
+# 网关时它是准的；不同时它问错了地方。这不是可以糊过去的细节，所以：探过的 host 一律打出来，
+# 让人自己对一眼。**不假装知道生产指着哪儿**——同 wechat_claim 那一格的口径。
+if [[ "${ACTIVE_GATE}" == "llm_key_live" ]]; then
+  LLM_GATE_BASE="${SW_OPS_DEEPSEEK_BASE_URL:-${SW_DSH_DEEPSEEK_BASE_URL:-}}"
+  if [[ -z "${LLM_GATE_BASE}" && -r "${SCRIPT_DIR}/../../.env" ]]; then
+    # 只取这一个键，逐字提取，不 source 整份 .env（那会把一屋子凭据带进本进程的环境）。
+    LLM_GATE_BASE="$(sed -n 's/^[[:space:]]*SW_DSH_DEEPSEEK_BASE_URL=//p' "${SCRIPT_DIR}/../../.env" | tail -1 | tr -d '"'"'"'[:space:]')"
+  fi
+  LLM_GATE_BASE="${LLM_GATE_BASE:-https://api.deepseek.com}"
+  LLM_GATE_BASE="${LLM_GATE_BASE%/}"
+  LLM_GATE_HOST="$(printf '%s' "${LLM_GATE_BASE}" | sed -E 's#^[a-zA-Z]+://##; s#/.*##')"
+
+  command -v curl >/dev/null 2>&1 || die_with "${ENV_LLM_KEY_PROBE_STATUS}" \
+    "llm_key_live 闸门跑不起来：本机没有 curl，**生产 .env 一个字节都没动**" \
+    "这道闸门要拿新 key 去问一次网关，没有 curl 就问不了，按 fail-closed 拒绝。" \
+    "装上 curl 再重跑。"
+
+  note "闸门 llm_key_live：拿这把新值探 ${LLM_GATE_BASE}/models（host=${LLM_GATE_HOST}）"
+  note "  这是**值班机**认识的网关；生产 .env 的 SW_DSH_DEEPSEEK_BASE_URL 不在白名单上、这里读不到。"
+  note "  两边不是同一个网关的话，这道闸门问的就是另一台机器——请自己对一眼上面那个 host。"
+
+  LLM_GATE_CODE="$(sw_ops_probe_llm_key "${LLM_GATE_BASE}")" || LLM_GATE_CODE="000"
+  case "${LLM_GATE_CODE}" in
+    2??)
+      note "  通过：网关认这把 key（HTTP ${LLM_GATE_CODE}）" ;;
+    401|403)
+      die_with "${ENV_LLM_KEY_GATE_STATUS}" \
+        "事前闸门拒绝了这次变更：模型网关不认这把 key（HTTP ${LLM_GATE_CODE}），**生产 .env 一个字节都没动**" \
+        "探的是 ${LLM_GATE_BASE}/models（host=${LLM_GATE_HOST}）。" \
+        "写一把网关已经拒绝的 key 上去，后果是出稿整批失败而没有任何一格会红（见上面那段警告）。" \
+        "处置：确认 ${CRED_FILE} 的 ${POLICY_CRED_KEY} 键里是不是当前有效的那把（此处不回显值，红线 R5）；" \
+        "或者这把 key 本来就对、只是值班机与生产指着**不同的网关**——那就用 SW_OPS_DEEPSEEK_BASE_URL=<生产那个> 重跑。" ;;
+    *)
+      die_with "${ENV_LLM_KEY_PROBE_STATUS}" \
+        "事前闸门**探不到**模型网关（curl 回 ${LLM_GATE_CODE}），按 fail-closed 拒绝写入，**生产 .env 一个字节都没动**" \
+        "探的是 ${LLM_GATE_BASE}/models（host=${LLM_GATE_HOST}）。000 表示连不上 / 超时 / DNS 解析不了。" \
+        "「探不到」与「网关拒绝」是两件事，退出码也不同（${ENV_LLM_KEY_PROBE_STATUS} / ${ENV_LLM_KEY_GATE_STATUS}）：" \
+        "前者要查的是网络与网关地址，后者要查的是 key 本身。" \
+        "网关地址不对就用 SW_OPS_DEEPSEEK_BASE_URL=<正确的> 重跑。" ;;
+  esac
 fi
 
 # ---------------------------------------------------------------- 远端变更脚本
@@ -1941,7 +2095,7 @@ env_set_remote() {
       "${ENV_DUPLICATE_STATUS}" "${ENV_BAD_KEY_STATUS}" "${ENV_BAD_VALUE_STATUS}" \
       "${ENV_BACKUP_STATUS}" "${ENV_WRITE_STATUS}" "${ENV_MISSING_STATUS}" \
       "${ENV_RECREATE_STATUS}" "${WRITE_ONLY}" \
-      "${ACTIVE_GATE}" "${ENV_PRECHECK_GATE_STATUS}" "${ENV_PRECHECK_PROBE_STATUS}" \
+      "${REMOTE_GATE}" "${ENV_PRECHECK_GATE_STATUS}" "${ENV_PRECHECK_PROBE_STATUS}" \
       "${ENV_CARRIER_GATE_STATUS}" "${ENV_CARRIER_PROBE_STATUS}" \
       "${ENV_BACKEND_CREDS_STATUS}" "${ENV_WECHAT_CERT_STATUS}" \
       "${ENV_SIGNING_GATE_STATUS}" "${ENV_SIGNING_PROBE_STATUS}" "${ACCEPT_BREAKING}" \
