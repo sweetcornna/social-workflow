@@ -129,6 +129,16 @@ warn（小红书的 `xhs.image.missing` 甚至是 block）——**没有 chromiu
 
 两半缺一不可：只判前一半的话，哪天谁把确认闸门关了，它照样全绿。
 
+同一份判定也能在**部署机器上、用部署镜像**跑（隔离沙盒，碰不到真实台账与数据库）：
+
+```bash
+bash scripts/ops/acceptance.sh --lane xhs
+```
+
+这一条比本机那条多证一件事：镜像里到底有没有 chromium。没有的话 autopilot 在那台机器上
+一条稿都批不了，而这在门禁补上「渲染链」两项之前是完全无声的。细节见
+[`scripts/ops/README.md`](scripts/ops/README.md) 的「生产端到端验收」。
+
 ### 连续运行验证
 
 ```bash

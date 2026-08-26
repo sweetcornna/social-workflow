@@ -55,6 +55,9 @@ bash scripts/ops/env_set.sh --show
 bash scripts/ops/env_set.sh --key SW_USE_FAKE_PUBLISHERS --value false
 # 给生产加工作台 API token（本机生成 → 写凭据文件 → 推生产，全程不回显）
 bash scripts/ops/env_set.sh --key SW_UI_TOKEN --generate
+# 在生产机器上、用生产镜像跑一遍端到端验收（隔离沙盒，碰不到真实台账与数据库）
+bash scripts/ops/acceptance.sh --dry-run
+bash scripts/ops/acceptance.sh --lane xhs
 ```
 
 指定 `--ref` 时必须同时给 `--sha`（40 位**小写**完整提交；短 SHA 和大写都会被拒绝）。分支名
@@ -1057,6 +1060,51 @@ Telegram 轮询冲突（error_code=409）
 ```
 
 可用 `SW_SERVER_BACKUP_DIR` 替换本机备份根目录。
+
+## 生产端到端验收（`acceptance.sh`）
+
+```bash
+bash scripts/ops/acceptance.sh --dry-run          # 只说要做什么，不连远端
+bash scripts/ops/acceptance.sh                    # 默认 --lane xhs
+bash scripts/ops/acceptance.sh --lane wechat
+```
+
+它在生产机器上 `docker compose run --rm --no-deps core`，跑仓库里那份
+`scripts/acceptance_full_chain.py`。两个临时账号：闸门关的那个要零干预走到 `measured`，
+闸门开的那个要停在 `scheduled` 并记一笔 `skipped_unconfirmed`。两半都过才算通过。
+
+### 为什么本机跑一遍不算数
+
+本机跑证的是「这份代码接得上」。它证不了生产那台机器的**镜像里到底有没有 chromium**——
+而这正是「全自动」在生产上跑不动的真实原因，且一度真的发生过：
+
+> 镜像原来只 `uv sync --extra dsh`。没有 chromium → 封面 / 卡片渲不出来 → 机器审核记一条
+> `cover.missing`（小红书那条 `xhs.image.missing` 甚至是 block）→ autopilot 的自动批准条件
+> 是 `block == 0 且 warn == 0`，**一条 warn 就够让它不批** → 每条稿子都退回人工审核台。
+> 换公众号纯文平台也躲不开，那条 warn 对公众号照样成立。
+
+门禁在补上「渲染链」那两项之前，对着这台机器说的是「28 项零 FAIL」。
+
+### 它碰不到生产的任何真实数据
+
+跑的是那份脚本自带的沙盒：临时库、临时媒体目录、`FakePublisher`、Telegram 关掉、
+`SW_ACCOUNTS_FILE` 指向临时文件。**远端在真正执行之前会逐条 `grep` 核对这五道保险还在**，
+少一条就拒跑并说出少的是哪一条——不靠「我记得它是隔离的」，靠当场验。
+
+它也不会替任何人点确认：建的两个账号是它自己的临时账号，生产台账里那些
+`confirm_required=true` 的账号一个都不碰。R1 红线不在这条通路上。
+
+### 退出码
+
+| 码 | 含义 |
+| --- | --- |
+| `0` | 通过：闸门关的账号零干预走到 `measured`，闸门开的账号停在 `scheduled` |
+| `1` | 验收未通过（脚本自己判红，输出里有「失败项」） |
+| `3` | 生产镜像里没有渲染链——autopilot 在那台机器上批不了任何稿子 |
+| `40` | 隔离前置检查没过：远端那份脚本少了保险，拒跑 |
+
+`3` 和 `1` 分开是有用的：一个该去装东西（`--extra render` + `playwright install chromium`
+进镜像，然后 `update.sh --apply`），一个该去查代码。混成一个码，调用方就分不清。
 
 ## sidecar 启用（`sidecar.sh`）
 
