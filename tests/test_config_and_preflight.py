@@ -330,6 +330,47 @@ def test_preflight_schedule_params(monkeypatch):
     assert check.status in ("WARN", "FAIL") and "退避" in check.detail
 
 
+def test_preflight_says_so_when_the_render_chain_is_missing(monkeypatch):
+    """渲染链缺了要**当场说**，别等到审核那一关才发现。
+
+    2026-08-26 在生产上被这件事咬过：容器里没有 Playwright，门禁 28 项全跑完、一个 FAIL 都
+    没有，然后一条抖音稿走完生成链、在机器审核挂 ``inspect.douyin.cover.missing`` 被拦下。
+    门禁刚刚才对着同一台机器说过"通过"——**一道号称回答「这台机器能不能干活」的门禁，
+    对一整个模块的缺失保持沉默，比没有这道门禁更糟。**
+
+    定成 WARN 而不是 FAIL：公众号纯文也能发，缺渲染链不该把整台机器判死。
+    """
+    import scripts.preflight as preflight
+
+    monkeypatch.setattr("generation.cover.playwright_available", lambda: False)
+    monkeypatch.setattr("generation.wechat_render.node_available", lambda *a, **k: False)
+
+    checks = {c.name: c for c in preflight.check_render_chain(reload_settings())}
+    assert checks["渲染链 Playwright"].status == "WARN"
+    assert "cover.missing" in checks["渲染链 Playwright"].detail, "要说清后果落在哪一格上"
+    assert checks["渲染链 Node"].status == "WARN"
+
+    monkeypatch.setattr("generation.cover.playwright_available", lambda: True)
+    monkeypatch.setattr("generation.wechat_render.node_available", lambda *a, **k: True)
+    checks = {c.name: c for c in preflight.check_render_chain(reload_settings())}
+    assert checks["渲染链 Playwright"].status == "OK"
+    assert checks["渲染链 Node"].status == "OK"
+
+
+def test_preflight_registers_the_render_chain(tmp_path):
+    """光有这个函数不够——它必须真的挂在 run_checks 那张清单上。
+
+    少了这一条，上面那条用例会在一个**从来不被调用**的函数上永远绿。
+    """
+    from scripts.preflight import run_checks
+
+    path = tmp_path / "accounts.yaml"
+    path.write_text("accounts: []\n", encoding="utf-8")
+    names = {c.name for c in run_checks(offline=True, accounts_path=path)}
+    assert "渲染链 Playwright" in names
+    assert "渲染链 Node" in names
+
+
 def test_preflight_trendradar_unconfigured(monkeypatch):
     from scripts.preflight import check_trendradar
 

@@ -891,6 +891,49 @@ def check_database(settings: Settings) -> Check:
     return Check("数据库", "OK", f"{url}（目录可写）")
 
 
+def check_render_chain(settings: Settings) -> list[Check]:
+    """渲染链在不在：Playwright/chromium（封面与小红书卡片）+ Node（公众号正文）。
+
+    【为什么必须有这两格 —— 2026-08-26 在生产上被这件事咬过】这两样都是**可选依赖**，
+    缺了不会让 core 起不来、``/health`` 与 ``/api/v1/system/info`` 一格都不会红。表现要等到
+    某条稿走完生成链、在机器审核里挂 ``inspect.douyin.cover.missing`` 才看得见——那时它已经
+    在审核队列里了，而门禁刚刚才对着同一台机器说过"通过"。**一道号称回答"这台机器能不能干活"
+    的门禁，对一整个模块的缺失保持沉默，比没有这道门禁更糟。**
+
+    定成 WARN 不是 FAIL：三平台里只有小红书与抖音**必须**有图，公众号纯文也能发，所以缺渲染
+    链不该把整台机器判死。它要做的是把"你这台机器出的稿子会在审核那一关被拦下"提前说出来。
+    """
+    from generation.cover import INSTALL_HINT, playwright_available
+    from generation.wechat_render import node_available
+
+    checks: list[Check] = []
+    if playwright_available():
+        checks.append(Check("渲染链 Playwright", "OK", "已安装：封面与小红书卡片能渲"))
+    else:
+        checks.append(
+            Check(
+                "渲染链 Playwright",
+                "WARN",
+                "未安装：**出不了封面与卡片**。小红书/抖音的稿子会在机器审核挂 "
+                f"inspect.*.cover.missing 并被拦下（公众号纯文不受影响）。装：{INSTALL_HINT}",
+            )
+        )
+
+    node_bin = settings.wenyan_node_bin
+    if node_available(node_bin):
+        checks.append(Check("渲染链 Node", "OK", f"{node_bin} 可用：公众号正文能渲"))
+    else:
+        checks.append(
+            Check(
+                "渲染链 Node",
+                "WARN",
+                f"找不到 {node_bin}：公众号正文渲不出 body_html（WECHAT_BACKEND=wenyan 时必需）。"
+                "装 Node 或改 WENYAN_NODE_BIN",
+            )
+        )
+    return checks
+
+
 def run_checks(*, offline: bool, accounts_path: Path) -> list[Check]:
     settings = Settings()
     accounts = load_accounts(accounts_path)
@@ -900,6 +943,7 @@ def run_checks(*, offline: bool, accounts_path: Path) -> list[Check]:
         check_anthropic(settings),
         *check_dsh(settings, offline),
         *check_imagegen(settings, offline),
+        *check_render_chain(settings),
         *check_wechat(settings, offline),
         check_pexels(settings, offline),
         check_pixabay(settings, offline),
