@@ -98,6 +98,25 @@ curl -sX POST 'localhost:8000/dev/tick/insights?force=true'
 uv run python -m core.scheduler                     # 或者单独起一个调度进程
 ```
 
+### 端到端验收（一条命令）
+
+「这套东西真的能无人值守跑通吗」不必读报告相信，自己跑一条命令：
+
+```bash
+uv run python scripts/acceptance_full_chain.py --offline   # 不打网络，ScriptedLLM
+uv run python scripts/acceptance_full_chain.py             # 用真实 LLM（要 .env 里的 key）
+```
+
+它建两个隔离账号（临时库、临时媒体目录、`FakePublisher`、Telegram 关掉，**一个字节都不会
+发到平台上**），然后只调真实的 scheduler tick 走一遍，中途不碰任何一条记录的状态：
+
+- `accept-auto`（`confirm_required=false`）—— 证「**无干预**」：采集 → 出稿 → 机器审核 →
+  autopilot 批准 → 排期 → 发布 → 回流 → `measured`。
+- `accept-gated`（`confirm_required=true`，**生产的默认形态**）—— 证「红线 R1 还在」：
+  同样自动走到 `scheduled` 然后**停住**，`skipped_unconfirmed` 记它一笔。
+
+两半缺一不可：只判前一半的话，哪天谁把确认闸门关了，它照样全绿。
+
 ### 连续运行验证
 
 ```bash
