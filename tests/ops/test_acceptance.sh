@@ -126,22 +126,32 @@ assert_contains "${RESULT}" "--extra render"
 
 run_case "sandbox refusal keeps exit code 40" TEST_SSH_STATUS=40 --
 assert_status 40
-assert_contains "${RESULT}" "隔离前置检查没过"
-assert_not_contains "${RESULT}" "绕过"$'\n'  # 提示里不许给"绕过它"的做法
+assert_contains "${RESULT}" "沙盒自检没过"
 
 run_case "acceptance failure keeps exit code 1" TEST_SSH_STATUS=1 --
 assert_status 1
 assert_contains "${RESULT}" "生产验收未通过"
 
-# 7. 远端脚本正文：五道隔离保险一条都不许少，而且是**在远端当场核**，
-#    不是在本机 assert 一句"我记得它是隔离的"。
-case_name="remote body verifies all five isolation guards"
+# 7. 沙盒自检**不许**在远端宿主机上 grep 源码。compose 没有把源码 bind mount 进 core
+#    （docker-compose.yml 里只挂 core_data 与 accounts.yaml），真正跑的是镜像里烤进去的
+#    那一份。在宿主机检出上 grep 等于检查了另一个文件——两份正常情况下一样，而
+#    "正常情况下一样"正是这类护栏最常见的失效方式。所以保证长在被跑的那份进程里。
+case_name="sandbox proof is not a host-side grep of the wrong file"
 cases=$((cases + 1))
-for guard in SW_USE_FAKE_PUBLISHERS SW_TELEGRAM_ENABLED SW_SYNC_ACCOUNTS_ON_START \
-             SW_ACCOUNTS_FILE SW_DATABASE_URL; do
-  assert_contains "${REMOTE_SRC}" "${guard}"
-done
-assert_contains "${REMOTE_SRC}" "隔离前置检查没过，拒跑"
+if grep -qE "grep -q .os\.environ" "${SCRIPT}"; then
+  fail_assertion "远端在宿主机检出上 grep 源码——那不是容器里会跑的那份文件"
+fi
+assert_contains "${REMOTE_SRC}" "compose 没有把源码 bind mount 进 core"
+
+# 7b. 被跑的那份脚本里，进程内自检必须真的在。护栏的另一半在 tests/test_acceptance_script.py，
+#     这里只钉住"运维通路依赖的那道自检还存在"，免得两边同时被改掉还没人发现。
+case_name="the in-process sandbox self-check still exists"
+cases=$((cases + 1))
+PY_SCRIPT="${ROOT}/scripts/acceptance_full_chain.py"
+grep -q "_assert_sandbox(tmp)" "${PY_SCRIPT}" \
+  || fail_assertion "acceptance_full_chain.py 里的进程内沙盒自检没了"
+grep -q "EXIT_SANDBOX_UNPROVEN = 40" "${PY_SCRIPT}" \
+  || fail_assertion "沙盒自检的退出码 40 没了，运维通路那条映射会指向空处"
 
 # 8. 远端 heredoc 的 stdin 不变量：每条 docker 都要有显式 stdin 来源，否则它会把
 #    "脚本剩下的部分"吞掉，而脚本仍以 0 收尾——历史事故正是这么来的。

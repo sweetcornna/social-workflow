@@ -8,9 +8,13 @@
 # 不批 → 每条稿子都退回人工审核台。整条链在门禁一声不吭的情况下断在这里。
 #
 # 【它碰不到生产的任何真实数据】跑的是 acceptance_full_chain.py 自带的沙盒：临时库、
-# 临时媒体目录、FakePublisher、Telegram 关掉、SW_ACCOUNTS_FILE 指向临时文件。远端在
-# 真正执行之前会**逐条核对**这几道保险还在（见下面的隔离前置检查），少一条就拒跑——
-# 不靠"我记得它是隔离的"，靠当场验。
+# 临时媒体目录、FakePublisher、Telegram 关掉、SW_ACCOUNTS_FILE 指向临时文件。这几道
+# 保险由那个脚本**在进程内**逐条自检，不成立就以 40 退出——不靠"我记得它是隔离的"。
+#
+# 自检为什么必须长在那边、而不是由这里在远端 grep 一遍源码：docker-compose.yml 里 core
+# **没有**把源码 bind mount 进容器（只挂 core_data 与 accounts.yaml），真正跑的是镜像里
+# 烤进去的那一份。在宿主机检出上 grep 等于检查了另一个文件——正常情况下两份一样，而
+# "正常情况下一样"恰恰是这类护栏最常见的失效方式。这条通路只负责把 40 如实传出来。
 #
 # 【它也不会替任何人点确认】脚本建的两个账号是它自己的临时账号；生产台账里那些
 # confirm_required=true 的账号一个都不碰。R1 红线不在这条通路上。
@@ -23,7 +27,7 @@ LANE_SET=0
 
 #: 生产镜像里没有渲染链。和"验收未通过"（1）分得开：一个该去装东西，一个该去查代码。
 EXIT_RENDER_CHAIN_MISSING=3
-#: 隔离前置检查没过——远端那份脚本不是我们以为的那份，拒跑。
+#: 沙盒自检没过——镜像里那份脚本的隔离保险不成立，容器内拒跑。
 EXIT_SANDBOX_UNPROVEN=40
 
 die() { printf '\n✗ %s\n' "${1}" >&2; shift; for line in "$@"; do printf '  %s\n' "${line}" >&2; done; exit 1; }
@@ -41,7 +45,7 @@ usage() { cat >&2 <<'USAGE'
   0   验收通过：闸门关的账号零干预走到 measured，闸门开的账号停在 scheduled
   1   验收未通过（脚本自己判红，输出里有失败项）
   3   生产镜像里没有渲染链——autopilot 在那台机器上批不了任何稿子
-  40  隔离前置检查没过：远端那份脚本少了保险，拒跑
+  40  沙盒自检没过：镜像里那份脚本有隔离保险不成立，容器内拒跑
 USAGE
 }
 
@@ -73,7 +77,7 @@ command -v ssh >/dev/null 2>&1 || die "本机没有 ssh 命令"
 printf '生产端到端验收（--lane %s）\n\n' "${LANE}"
 note "目标 ${SSH_ALIAS}：docker compose run --rm --no-deps core"
 note "跑 scripts/acceptance_full_chain.py --offline --lane ${LANE}"
-note "隔离：临时库 / 临时媒体目录 / FakePublisher / Telegram 关 / 临时台账（远端逐条核验）"
+note "隔离：临时库 / 临时媒体目录 / FakePublisher / Telegram 关 / 临时台账（容器内进程自检）"
 
 if [[ "${DRY_RUN}" -eq 1 ]]; then
   printf '\n演练模式：只展示将要执行的动作，不连远端。\n'
@@ -90,25 +94,8 @@ set -euo pipefail
 lane="${1}"
 cd "${HOME}/social_workflow"
 
-script="scripts/acceptance_full_chain.py"
-[[ -r "${script}" ]] || { printf '✗ 远端没有 %s\n' "${script}" >&2; exit 40; }
-
-# ── 隔离前置检查 ────────────────────────────────────────────────────────────
-# 不靠"我记得它是隔离的"。真实世界只要有一条保险掉了，这条命令就会在生产库上跑一遍
-# 采集与发布——所以少一条就拒跑，而且要说出少的是哪一条。
-missing=""
-grep -q 'os.environ\["SW_USE_FAKE_PUBLISHERS"\] = "true"' "${script}"   || missing="${missing} SW_USE_FAKE_PUBLISHERS"
-grep -q 'os.environ\["SW_TELEGRAM_ENABLED"\] = "false"' "${script}"     || missing="${missing} SW_TELEGRAM_ENABLED"
-grep -q 'os.environ\["SW_SYNC_ACCOUNTS_ON_START"\] = "false"' "${script}" || missing="${missing} SW_SYNC_ACCOUNTS_ON_START"
-grep -q 'os.environ\["SW_ACCOUNTS_FILE"\]' "${script}"                  || missing="${missing} SW_ACCOUNTS_FILE"
-grep -q 'os.environ\["SW_DATABASE_URL"\]' "${script}"                   || missing="${missing} SW_DATABASE_URL"
-if [[ -n "${missing}" ]]; then
-  printf '✗ 隔离前置检查没过，拒跑。缺:%s\n' "${missing}" >&2
-  printf '  这几行是这条命令碰不到生产数据的**全部**依据，少一条就不能跑。\n' >&2
-  exit 40
-fi
-printf '  ✓ 隔离前置检查：五道保险都在\n'
-
+# 沙盒自检不在这里做，在容器里做——见本文件头。这里 grep 宿主机检出等于检查了另一个
+# 文件：compose 没有把源码 bind mount 进 core，真正跑的是镜像里烤进去的那份。
 docker compose run --rm --no-deps core \
   python scripts/acceptance_full_chain.py --offline --lane "${lane}" </dev/null
 REMOTE
@@ -126,9 +113,9 @@ case "${STATUS}" in
         "然后 bash scripts/ops/update.sh --apply。"
     ;;
   "${EXIT_SANDBOX_UNPROVEN}")
-    die_with "${EXIT_SANDBOX_UNPROVEN}" "隔离前置检查没过，远端拒跑" \
-        "远端那份 acceptance_full_chain.py 少了保险行，见上面的 stderr。" \
-        "在核对清楚之前**不要**绕过这道检查——它拦的是「在生产库上跑一遍采集与发布」。"
+    die_with "${EXIT_SANDBOX_UNPROVEN}" "沙盒自检没过，容器内拒跑" \
+        "镜像里那份 acceptance_full_chain.py 有隔离保险不成立，上面列了是哪几条。" \
+        "在核对清楚之前不要动那道自检——它拦的是「在生产库上跑一遍采集与发布」。"
     ;;
   1) die_with 1 "生产验收未通过" "远端输出里的「失败项」列了具体哪一条断了。" ;;
   *) die_with "${STATUS}" "生产验收异常退出（状态 ${STATUS}）" "多半是 ssh 或 docker 层面的问题，不是验收判定。" ;;

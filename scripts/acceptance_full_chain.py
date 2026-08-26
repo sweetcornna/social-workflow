@@ -53,6 +53,52 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: 所以用一个和"验收未通过"（1）分得开的码，脚本化调用能一眼看出该装东西还是该查代码。
 EXIT_RENDER_CHAIN_MISSING = 3
 
+#: 沙盒自检没过——隔离保险掉了一条，拒跑。
+EXIT_SANDBOX_UNPROVEN = 40
+
+
+def _assert_sandbox(tmp: str) -> None:
+    """跑之前**当场验**这五道保险还在，不在就拒跑。
+
+    为什么这道检查非得长在脚本自己身上，而不是由调用方（scripts/ops/acceptance.sh）
+    在外面 grep 一遍源码：生产是容器部署，而 docker-compose.yml 里 core **没有**把源码
+    bind mount 进去（只挂 core_data 与 accounts.yaml）。真正会跑的是**镜像里烤进去的
+    那一份**。在宿主机检出上 grep 等于检查了另一个文件——正常情况下两份一样，而
+    "正常情况下一样"恰恰是这类护栏最常见的失效方式。
+
+    长在进程内就没有这个缝：验的就是马上要跑的这份，验的是**环境变量的实际取值**，
+    不是源码里长得像那么回事的几行字。
+    """
+    proofs = [
+        (
+            "SW_DATABASE_URL",
+            lambda v: v.startswith("sqlite:///") and tmp in v,
+            "库必须在临时目录里",
+        ),
+        ("SW_MEDIA_ROOT", lambda v: v.startswith(tmp), "媒体目录必须在临时目录里"),
+        ("SW_ACCOUNTS_FILE", lambda v: v.startswith(tmp), "台账必须指向临时文件"),
+        ("SW_USE_FAKE_PUBLISHERS", lambda v: v == "true", "发布必须走 FakePublisher"),
+        ("SW_TELEGRAM_ENABLED", lambda v: v == "false", "不许往真人手机推确认卡"),
+        ("SW_SYNC_ACCOUNTS_ON_START", lambda v: v == "false", "不许读、更不许写真实台账"),
+    ]
+    broken = [
+        f"{name}（{why}），实际 = {os.environ.get(name, '<未设置>')!r}"
+        for name, ok, why in proofs
+        if not ok(os.environ.get(name, ""))
+    ]
+    if broken:
+        print("沙盒自检没过，拒跑。以下保险不成立：", flush=True)
+        for line in broken:
+            print(f"  · {line}", flush=True)
+        print(
+            "这几条是本脚本碰不到真实数据的**全部**依据。少一条就意味着它会在真实库上"
+            "跑一遍采集与发布——所以宁可不跑。",
+            flush=True,
+        )
+        raise SystemExit(EXIT_SANDBOX_UNPROVEN)
+    print(f"沙盒自检: 六道保险都成立（沙盒目录 {tmp}）", flush=True)
+
+
 #: 每条赛道：账号用哪个平台、这条赛道证明了什么。**两条都要渲染链**，见模块 docstring。
 LANES = {
     "xhs": ("xhs", "图文笔记链（卡片渲染，xhs.image.missing 是 block，最严）"),
@@ -118,6 +164,7 @@ def _bootstrap(offline: bool) -> str:
         for key in ("ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "SW_DSH_GATEWAY_API_KEY"):
             os.environ.pop(key, None)
     sys.path.insert(0, str(REPO_ROOT))
+    _assert_sandbox(tmp)
     return tmp
 
 

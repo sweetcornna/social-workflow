@@ -35,6 +35,8 @@ SCRIPT = REPO_ROOT / "scripts" / "acceptance_full_chain.py"
 sys.path.insert(0, str(REPO_ROOT))
 from scripts.acceptance_full_chain import (  # noqa: E402
     EXIT_RENDER_CHAIN_MISSING,
+    EXIT_SANDBOX_UNPROVEN,
+    _assert_sandbox,
     _render_chain_ready,
 )
 
@@ -116,3 +118,61 @@ def test_the_script_would_fail_loudly_if_the_gate_were_bypassed() -> None:
     # 那一刻，"某条赛道不用渲染链"这个已经被实测推翻的说法就又回来了。
     assert "if needs_render" not in src, "渲染链前置检查不许挂在某条赛道上——两条都要"
     assert "ready, detail = _render_chain_ready()" in src, "少了渲染链前置检查"
+    # 沙盒自检必须在 _bootstrap 里无条件跑。它是这个脚本碰不到真实数据的唯一保证，
+    # 而且必须长在进程内——运维通路在宿主机上 grep 的是另一个文件（镜像没 bind mount）。
+    assert "_assert_sandbox(tmp)" in src, "少了进程内沙盒自检"
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        {"SW_USE_FAKE_PUBLISHERS": "false"},
+        {"SW_TELEGRAM_ENABLED": "true"},
+        {"SW_SYNC_ACCOUNTS_ON_START": "true"},
+        {"SW_DATABASE_URL": "sqlite:////app/data/social_workflow.db"},
+        {"SW_MEDIA_ROOT": "/app/data/media"},
+        {"SW_ACCOUNTS_FILE": "/app/accounts.yaml"},
+    ],
+)
+def test_sandbox_self_check_refuses_when_any_single_guard_is_broken(
+    monkeypatch, tmp_path, broken: dict[str, str]
+) -> None:
+    """六道保险**任意一条**不成立就拒跑，而且要说出是哪一条。
+
+    这道自检长在脚本进程里而不是长在调用方，是有具体原因的：生产是容器部署，
+    docker-compose.yml 里 core 没有把源码 bind mount 进去，真正跑的是镜像里烤进去的
+    那一份。运维脚本在宿主机检出上 grep 等于检查了另一个文件——两份正常情况下一样，
+    而"正常情况下一样"正是这类护栏最常见的失效方式。
+
+    参数化到每一条，是因为"六条一起掉"从来不是真实的失效方式；真实的是有人顺手删了
+    其中一行。一条都不许漏网。
+    """
+    tmp = str(tmp_path)
+    good = {
+        "SW_DATABASE_URL": f"sqlite:///{tmp}/acceptance.db",
+        "SW_MEDIA_ROOT": f"{tmp}/media",
+        "SW_ACCOUNTS_FILE": f"{tmp}/accounts.yaml",
+        "SW_USE_FAKE_PUBLISHERS": "true",
+        "SW_TELEGRAM_ENABLED": "false",
+        "SW_SYNC_ACCOUNTS_ON_START": "false",
+    }
+    for name, value in {**good, **broken}.items():
+        monkeypatch.setenv(name, value)
+    with pytest.raises(SystemExit) as excinfo:
+        _assert_sandbox(tmp)
+    assert excinfo.value.code == EXIT_SANDBOX_UNPROVEN, "拒跑的码要和「验收未通过」分得开"
+
+
+def test_sandbox_self_check_passes_when_every_guard_holds(monkeypatch, tmp_path) -> None:
+    """全都成立时**不能**拦——否则上一条用例可以靠"永远拒跑"作弊过关。"""
+    tmp = str(tmp_path)
+    for name, value in {
+        "SW_DATABASE_URL": f"sqlite:///{tmp}/acceptance.db",
+        "SW_MEDIA_ROOT": f"{tmp}/media",
+        "SW_ACCOUNTS_FILE": f"{tmp}/accounts.yaml",
+        "SW_USE_FAKE_PUBLISHERS": "true",
+        "SW_TELEGRAM_ENABLED": "false",
+        "SW_SYNC_ACCOUNTS_ON_START": "false",
+    }.items():
+        monkeypatch.setenv(name, value)
+    _assert_sandbox(tmp)
