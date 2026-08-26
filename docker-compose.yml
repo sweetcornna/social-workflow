@@ -91,6 +91,12 @@ services:
     container_name: sw-xhs-downloader
     profiles: ["xhs"]
     restart: unless-stopped
+    # 【这行不能省】镜像的默认 CMD 起的是 Textual **交互界面**，不是 API server：
+    # 容器 running、日志里一片 `Q Quit / U Update / S Settings`，5556 上永远没人监听。
+    # 于是 `scripts/ops/sidecar.sh --up xhs-downloader` 结构上就不可能成功——端口回环闸门
+    # 过了，探针永远探不到，而门禁只会说一句「不可达」。上游 README 给的 API 模式命令：
+    #   docker run -p host_port:5556 -v xhs_downloader_volume:/app/Volume -it image python main.py api
+    command: ["python", "main.py", "api"]
     ports:
       # 只绑回环：这个采集服务在本仓侧**没有任何鉴权**——对比每账号 sidecar 各有一个
       # AUTH_TOKEN，它连一个 token 变量都不存在（`.env.example` 里只有 BASE_URL）。
