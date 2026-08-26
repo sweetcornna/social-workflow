@@ -103,9 +103,21 @@ uv run python -m core.scheduler                     # 或者单独起一个调�
 「这套东西真的能无人值守跑通吗」不必读报告相信，自己跑一条命令：
 
 ```bash
-uv run python scripts/acceptance_full_chain.py --offline   # 不打网络，ScriptedLLM
-uv run python scripts/acceptance_full_chain.py             # 用真实 LLM（要 .env 里的 key）
+uv run python scripts/acceptance_full_chain.py --offline               # 不打网络，ScriptedLLM
+uv run python scripts/acceptance_full_chain.py                         # 用真实 LLM（要 .env 里的 key）
+uv run python scripts/acceptance_full_chain.py --offline --lane wechat # 换公众号纯文赛道
 ```
+
+**先装渲染链**，否则它会拒跑（退出码 3）并告诉你装什么：
+
+```bash
+uv sync --extra render && uv run playwright install chromium
+```
+
+这不是龟毛。autopilot 的自动批准条件是 `block == 0 且 warn == 0`，而封面渲不出来就是一条
+warn（小红书的 `xhs.image.missing` 甚至是 block）——**没有 chromium 的机器上，「全自动」
+对任何平台都不成立，每条稿子都会退回人工审核台**。换平台躲不开，所以脚本宁可拒跑也不
+换赛道：换了就等于把「这台机器批不了稿」伪装成「验收通过」。
 
 它建两个隔离账号（临时库、临时媒体目录、`FakePublisher`、Telegram 关掉，**一个字节都不会
 发到平台上**），然后只调真实的 scheduler tick 走一遍，中途不碰任何一条记录的状态：

@@ -3,6 +3,22 @@
 
     uv run python scripts/acceptance_full_chain.py            # 用真实 LLM（要 .env 里的 key）
     uv run python scripts/acceptance_full_chain.py --offline  # 降级到 ScriptedLLM，不打网络
+    uv run python scripts/acceptance_full_chain.py --lane xhs # 走图文赛道（要渲染链）
+
+**渲染链是硬前置，两条赛道都一样。** 这句话是被一次 CI 红和随后的实测逼出来的：
+
+  最早两个账号都钉死在 ``xhs``，于是这个脚本在装了 Playwright 的开发机上绿、在没装的
+  CI test job 上红。第一版修法是"没有渲染链就换 wechat 纯文赛道"——实测当场推翻了它：
+  autopilot 的自动批准条件是 ``block == 0 且 warn == 0``（core/scheduler.py:235），而
+  封面缺失虽然对公众号只是 **warn**，一条 warn 就足以让 autopilot 不批。
+
+  所以真实结论比"换个平台"硬得多：**没有 Playwright + chromium，任何平台都跑不出
+  「无干预」**。缺渲染链时正确的行为是当场退出并说清怎么装，而不是换条路假装走通了。
+
+  ``--lane xhs``（默认）  图文笔记。``xhs.image.missing`` 是 **block**，最严。
+  ``--lane wechat``      公众号纯文。封面缺失只是 warn，但 warn 一样卡住 autopilot；
+                         另外账号必须配 ``extra["author"]``，否则
+                         ``inspect.platform_extra.missing`` 再补一条 warn。
 
 为什么这个脚本要存在，而不是"跑一遍 tests/test_full_chain.py 就够了"：那两条用例跑在
 pytest 的夹具里，LLM、发布器、指标全是假的，证的是**代码接得上**。这里证的是另一件事——
@@ -32,6 +48,47 @@ import tempfile
 import traceback
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+#: 要求了 ``--lane xhs``、这台机器却没有渲染链。**不是**验收失败，是环境不满足前提，
+#: 所以用一个和"验收未通过"（1）分得开的码，脚本化调用能一眼看出该装东西还是该查代码。
+EXIT_RENDER_CHAIN_MISSING = 3
+
+#: 每条赛道：账号用哪个平台、这条赛道证明了什么。**两条都要渲染链**，见模块 docstring。
+LANES = {
+    "xhs": ("xhs", "图文笔记链（卡片渲染，xhs.image.missing 是 block，最严）"),
+    "wechat": ("wechat_mp", "公众号纯文链（封面只是 warn，但 warn 一样卡住 autopilot）"),
+}
+
+#: 公众号账号必须带的 ``platform_extra``。少了 ``author`` 只是 warn——但 autopilot 要求
+#: warn 也为 0，所以对本脚本而言"只是 warn"和"发不出去"是同一件事。
+LANE_ACCOUNT_EXTRA = {
+    "wechat_mp": {"author": "验收机器人"},
+}
+
+
+def _render_chain_ready() -> tuple[bool, str]:
+    """渲染链到底能不能用——**装没装库**和**浏览器起不起得来**是两回事。
+
+    只查 ``playwright_available()`` 会漏掉最常见的那种坏法：库装了、chromium 没下载。
+    那种机器上卡片照样渲不出来，而这个脚本会一路跑到判定处才报"没走到 measured"，
+    把一个装机问题伪装成一个代码问题。所以这里**真起一次浏览器**。
+    """
+    from generation.cover import INSTALL_HINT, playwright_available
+
+    if not playwright_available():
+        return False, f"Playwright 库没装。装：{INSTALL_HINT}"
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            p.chromium.launch().close()
+    except Exception as exc:  # 起不来的方式很多，一律当作"不可用"
+        return (
+            False,
+            f"Playwright 装了，但 chromium 起不来"
+            f"（{type(exc).__name__}: {exc}）。装：{INSTALL_HINT}",
+        )
+    return True, "Playwright + chromium 就绪"
 
 
 def _bootstrap(offline: bool) -> str:
@@ -71,9 +128,30 @@ def main() -> int:
         action="store_true",
         help="清掉所有 LLM key，生成链降级到 ScriptedLLM；不打任何外部网络",
     )
+    parser.add_argument(
+        "--lane",
+        choices=sorted(LANES),
+        default="xhs",
+        help="走哪条平台赛道。两条都要求 Playwright + chromium",
+    )
     args = parser.parse_args()
 
+    platform, lane_desc = LANES[args.lane]
     tmp = _bootstrap(args.offline)
+
+    print(f"赛道: --lane {args.lane} —— {lane_desc}", flush=True)
+    # 【前置检查，不是降级点】没有渲染链就当场退出。换赛道躲开它只会让这个脚本在缺件的
+    # 机器上照样打印"验收: 通过"，而 autopilot 在那台机器上一条稿都批不了。
+    ready, detail = _render_chain_ready()
+    print(f"渲染链前置检查: {detail}", flush=True)
+    if not ready:
+        print(
+            "验收: 未跑 —— 渲染链缺件，这台机器上 autopilot 批不了任何稿子"
+            "（自动批准要求 block==0 且 warn==0，封面缺失就是一条 warn）。"
+            "**没有换赛道绕过去**，因为那只会把缺件伪装成通过。",
+            flush=True,
+        )
+        return EXIT_RENDER_CHAIN_MISSING
 
     from sqlalchemy import select
 
@@ -114,24 +192,34 @@ def main() -> int:
             session.add(
                 Account(
                     id="accept-auto",
-                    platform="xhs",
+                    platform=platform,
                     name="验收·无干预",
                     status=AccountStatus.OK,
                     daily_limit=10,
-                    extra={"daily_target": 1, "autopilot": True, "confirm_required": False},
+                    extra={
+                        "daily_target": 1,
+                        "autopilot": True,
+                        "confirm_required": False,
+                        **LANE_ACCOUNT_EXTRA.get(platform, {}),
+                    },
                 )
             )
             session.add(
                 Account(
                     id="accept-gated",
-                    platform="xhs",
+                    platform=platform,
                     name="验收·闸门开着",
                     status=AccountStatus.OK,
                     daily_limit=10,
-                    extra={"daily_target": 1, "autopilot": True, "confirm_required": True},
+                    extra={
+                        "daily_target": 1,
+                        "autopilot": True,
+                        "confirm_required": True,
+                        **LANE_ACCOUNT_EXTRA.get(platform, {}),
+                    },
                 )
             )
-        return "accept-auto（闸门关）+ accept-gated（闸门开，生产默认形态）"
+        return f"accept-auto（闸门关）+ accept-gated（闸门开，生产默认形态），platform={platform}"
 
     step("0 建两个隔离账号（临时库，真实台账一个字节没碰）", seed_accounts)
     step("1 tick_sourcing 采集热榜填选题池", scheduler.tick_sourcing)
@@ -177,7 +265,8 @@ def main() -> int:
         return 1
     print("失败项: 无", flush=True)
     print(
-        "验收: 通过 —— 闸门关时一条内容零干预走到 measured；闸门开时停在 scheduled，R1 拦得住",
+        f"验收: 通过（--lane {args.lane}, platform={platform}）"
+        " —— 闸门关时一条内容零干预走到 measured；闸门开时停在 scheduled，R1 拦得住",
         flush=True,
     )
     return 0

@@ -722,3 +722,23 @@ def test_notifier_never_fails_the_deployment(monkeypatch, enabled, token, chat_i
     # 任何组合下都不许把凭据写进门禁输出
     assert FAKE_BOT_TOKEN not in check.detail
     assert FAKE_CHAT_ID not in check.detail
+
+
+def test_the_production_image_actually_ships_the_render_chain() -> None:
+    """镜像必须装 render extra + chromium，否则生产上 autopilot 一条稿都批不了。
+
+    这条用例盯的是一个**已经发生过**的缺口：镜像原来只 ``--extra dsh``，于是生产容器里
+    没有 chromium。后果不是"封面丑一点"，是链路当场断在自动批准那一步——
+    ``core.scheduler`` 的自动批准条件是 ``block == 0 且 warn == 0``，而封面缺失就是一条
+    warn。换公众号纯文平台也躲不开，因为那条 warn 对公众号照样成立。
+
+    ``PLAYWRIGHT_BROWSERS_PATH`` 那一条同样不能少：安装在构建期以 root 跑，运行时是
+    appuser，装进默认的 ``~/.cache/ms-playwright`` 等于装了个 appuser 找不到的浏览器——
+    那会退回到和没装一模一样的症状，还更难查。
+    """
+    dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text(encoding="utf-8")
+    assert "--extra render" in dockerfile, "镜像没装 render extra，生产上 autopilot 批不了稿"
+    assert "playwright install --with-deps chromium" in dockerfile, "装了库没装浏览器，等于没装"
+    assert "PLAYWRIGHT_BROWSERS_PATH" in dockerfile, (
+        "浏览器要装在共享路径上，否则运行时的 appuser 找不到 root 装的那份"
+    )
