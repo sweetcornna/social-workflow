@@ -16,10 +16,8 @@ token 的来源，**永远不打印它的值**。
 `env_set.sh` 另外用它生成 token、写凭据文件、把值经 stdin 流送到远端；`sidecar.sh` 只在
 `--status` 这一个模式里用它探 `/api/v1/system/info`（其余三个模式一个凭据都不取、也不往远端送）。
 
-**本目录之外还有一个 `source` 方**：`scripts/chat_console.sh`（对话台启动器）。它不碰生产、
-不走 SSH，只在**本机**用这份库取同一个值，喂给自己的 core 探活与 workbench MCP 子进程。
-放在这里说一句，是因为改这个库时它也在射程内——见下面「工作台 API token」的
-「对话台也吃这份库」。
+**本目录之外曾有一个 `source` 方**：`scripts/chat_console.sh`（对话台启动器）。对话台
+2026-08-27 已删除（`docs/OPS.md` 7.7），所以这份库现在的消费方**只在本目录内**。
 
 | 脚本 | 用途 |
 | --- | --- |
@@ -306,26 +304,14 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
 - `tests/ops/` 里有对应断言：假件把每次调用的完整 argv 落盘，断言 token 明文出现 **0 次**；
   同时另有一份**分开的**记录断言头确实送到了、值正确。只证明"没泄漏"不证明"送到了"不算数。
 
-### 对话台也吃这份库（本机侧，本目录之外的那个 `source` 方）
+### 曾经的第二个消费方（对话台，已移除）
 
-`scripts/chat_console.sh` 复用同一份 `ui_token.sh`，**不另写一套取值逻辑**。它与 ops 脚本的
-差别只有两点，其余（字符集白名单、xtrace 守卫、凭据文件的极窄解析、「已导出就采信哪怕空串」）
-逐字相同：
+`scripts/chat_console.sh` 曾复用同一份 `ui_token.sh`。对话台 2026-08-27 删除后这条路没有了，
+连同它的回归用例 `tests/ops/test_chat_console.sh`（25 例）一起去掉。
 
-1. **多认一个环境变量名 `SW_UI_TOKEN`，且它优先级最高。** 因为那就是 MCP 子进程真正读的
-   名字（`scripts/workbench_mcp.py:179`），人在 shell 里 export 了它却被启动器无视、甚至反手
-   覆盖掉，比多认一个名字糟得多。于是对话台侧是
-   `SW_UI_TOKEN` > `SW_OPS_UI_TOKEN` > 凭据文件的 `sw_ui_token` 键。
-   在值班工作站上 `export SW_OPS_UI_TOKEN=…` 一次，所有 ops 脚本与对话台会一起吃到。
-2. **注入路径不是 SSH，是本机进程环境。** 启动器把值 export 进自己的环境，一路继承到
-   `hermes serve`；MCP 子进程那一跳要靠 profile `config.yaml` 的
-   `mcp_servers.workbench.env.SW_UI_TOKEN: '${SW_UI_TOKEN}'` 转发（hermes 会过滤父进程环境，
-   `SW_UI_TOKEN` 不在它的放行名单里）。**值不写进 `config.yaml`，只写那个字面占位符。**
-   完整说明、两种错配的症状、以及"人怎么拿到 token"，见 `docs/OPS.md` 7.7.8。
-
-启动器自己的 core 探活也用 `curl --config -` 注入，`-q` 打头，与本节上面写的口径一致；
-`bash -x scripts/chat_console.sh` 打不出 token。回归断言在 `tests/ops/test_chat_console.sh`
-（25 例，零网络 / 零 Electron / 零 hermes），`bash scripts/ci_local.sh ops` 自动发现它。
+留一句在这里，是因为它当年逼出来的那条设计仍然生效：**这份库允许消费方各自扩展"认哪些
+环境变量名、优先级怎么排"，但取值逻辑只有一份**——字符集白名单、xtrace 守卫、凭据文件的
+极窄解析、「已导出就采信哪怕空串」这几条不许各写各的。将来再有第二个消费方，照这条来。
 
 实现在 `scripts/ops/ui_token.sh`（不单独执行；`source` 方以本文件开头那条
 `grep -l 'ui_token\.sh' scripts/ops/*.sh scripts/*.sh` 为准，这里不写个数）。
@@ -469,7 +455,7 @@ scripts/ops/env_set.sh`）。后两列是随凭据类键一起长出来的，各
 ### token 从哪来、人怎么拿到（红线 R5 下的完整答案）
 
 启用 `SW_UI_TOKEN` 之后，所有经 IAP 隧道访问 `/api/v1/*` 的一方都要带
-`Authorization: Bearer`：工作台前端、`scripts/workbench_mcp.py` 对话台，以及所有
+`Authorization: Bearer`：工作台前端、`scripts/workbench_mcp.py` 工具面，以及所有
 `source` 了 `ui_token.sh` 的 ops 脚本（名单以本文件开头那条 `grep -l` 为准，这里不写个数）。
 而红线 R5 规定凭据不进对话，所以**没有任何人可以把生成的 token 念给用户听**。于是 token
 的流向被设计成"人自己去读文件"，全程零回显：
@@ -488,7 +474,7 @@ cat ~/.dsh-sw/.credentials.yaml
 - **先本机落盘，后推远端。这个顺序不对称，反过来会自锁。** 本地成功、远端失败 = 本机多持有
   一个生产没有的值，`require_token` 在未启用时直接 return，多余的头被忽略，无害，重跑
   `--from-credentials` 即可收敛；远端成功、本地失败 = 生产要求一个**没有人持有**的 token，
-  工作台、对话台、所有 `source` 了 `ui_token.sh` 的脚本同时被 401 挡在门外，而唯一能恢复它的
+  工作台、MCP 工具面、所有 `source` 了 `ui_token.sh` 的脚本同时被 401 挡在门外，而唯一能恢复它的
   路径也要经 SSH。
 - **凭据文件已存在**：只追加一行，其余内容逐字保留（同目录临时文件 + `mv`，原文件末尾没有
   换行时先补一个，绝不粘连）。

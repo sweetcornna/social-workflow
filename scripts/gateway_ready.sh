@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 用途：探测自建模型网关的配额恢复状态，并在恢复后提示补验对话台的活体 LLM 路径。
+# 用途：探测自建模型网关的配额恢复状态。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -82,12 +82,9 @@ format_remaining() {
 }
 
 print_next_steps() {
-  printf '  接下来补验（docs/OPS.md 第 7.7.6 节）：\n'
-  printf '  1. persona 与红线问答\n'
-  printf '%s\n' '     bash ui/e2e/serve.sh 8000'
-  printf '%s\n' "     ${SW_DESKTOP_ROOT:-$HOME/project/social_workflow/sw-hermes-desktop}/.venv/bin/hermes --profile sw"
-  printf '  2. LLM 主动调工具\n'
-  printf '%s\n' "     ${SW_DESKTOP_ROOT:-$HOME/project/social_workflow/sw-hermes-desktop}/.venv/bin/hermes --profile sw"
+  # 这里原来印的是对话台（hermes desktop）的两条补验命令。对话台 2026-08-27 已删除
+  # （docs/OPS.md 7.7），那两条指向的二进制不存在了——印一条跑不通的命令比不印更糟。
+  printf '  网关可用了。本仓用它的地方：生成链（generation/llm_dsh.py）与 MCP 工具面。\n'
 }
 
 retry_after_from_headers() {

@@ -190,7 +190,7 @@ uv run python -m core.accounts check  # 台账与库有没有漂移
 
 ```bash
 grep -rnE '(一|两|二|三|四|五|六|七|八|九|十[一二三四五]?|数|[0-9]+) ?(个|条|项|道|份|张|例|支|套)? ?(脚本|命令|工具|测试|用例|tick|job|闸门|门禁|发布器|路由|截图|端点|拷贝|密钥|sidecar|键|条目|风险)' \
-  --include='*.md' . | grep -v 'docs/briefs/\|sw_p15_mcp/\|sw-harness/\|sw-hermes-desktop/'
+  --include='*.md' . | grep -v 'docs/briefs/\|sw_p15_mcp/\|sw-harness/'
 ```
 
 命中不等于失实：**数字旁边就把那几项列出来**的（读者当场能数）保留不动，只改与真实清单对不上的；
@@ -200,7 +200,7 @@ grep -rnE '(一|两|二|三|四|五|六|七|八|九|十[一二三四五]?|数|[0
 `cd ui && bash e2e/serve.sh 8123`——DB 与台账副本落在 `ui/.playwright/core-8123/`。
 
 工具面连的是 `SW_MCP_BASE_URL`（默认 `http://127.0.0.1:8000`）；core 开了
-`SW_UI_TOKEN` 时对话台侧要配同一个值。
+`SW_UI_TOKEN` 时 MCP 客户端那边要配同一个值。
 
 ---
 

@@ -21,7 +21,7 @@
 | [6.7](#67-生产运维命令与改生产-env) | 生产运维命令一览；**改生产 `.env` 为什么"重启"不够**（env_set.sh） |
 | [7](#7-成本闸门调整) | 成本闸门调整 |
 | [7.2](#72-生图配图p11) | 生图配图：开通、预算、尺寸不可信 |
-| [7.7](#77-对话台hermes-desktopp15) | 对话台（hermes desktop）：起法、红线、故障速查 |
+| [7.7](#77-对话台已移除2026-08-27) | 对话台（hermes desktop）：**已移除**，去向与保留项 |
 | [8](#8-本地工作台与隧道控制生产p17c) | 本地工作台与隧道控制生产：拓扑、日常三步、安全边界 |
 | [9](#9-待补) | 待补 |
 
@@ -2144,307 +2144,22 @@ SW_TELEGRAM_ALLOWED_USER_IDS=111111111,222222222   # 逗号分隔，留空 = 只
 | 稿子一直卡在"等你确认"，`scheduled_publish` 报 `skipped_unconfirmed` | 预期行为，不是故障——confirm 闸门在生效 | 去工作台点「确认发布」，或等 TTL 自动驳回 |
 | 以为打开 `autopilot` 就是全自动发布了 | `autopilot` 与 `confirm_required` 是两个独立开关（7.6.2） | 要真全自动只能账号级显式 `confirm_required: false`，这本身是一次要留痕的决定 |
 
-## 7.7 对话台（hermes desktop，P15）
+## 7.7 对话台（已移除，2026-08-27）
 
-「对话台」= 用对话的方式操作工作台。基座是 NousResearch **hermes-agent 0.20.4**，
-前端是它官方 desktop（React + Electron）的 fork，做了 Organic 换肤与运营特化。
-它与工作台（core + ui）是**两个前端、一份数据**：对话台的每个动作最终都是
-打到 core 的 `/api/v1`，没有旁路。
+「对话台」（hermes-agent 0.20.4 fork + Electron，`sw-hermes-desktop`）**已删除**，用户裁决"没用了"。
+连同它一起去掉的：`scripts/chat_console.sh`、`tests/ops/test_chat_console.sh`、`.hermes.md`、
+`ui/screenshots/chat/`、本机 profile `~/.hermes/profiles/sw/`。
 
-### 7.7.1 组成与位置
+代码没丢：fork 早已推到一个私有仓库（默认分支 `sw-desktop`），删除前核实过远端 HEAD 与
+本地逐字符一致。删的东西另有一份本机备份，路径记在删除那次提交的说明里。
 
-| 件 | 位置 | 说明 |
-|---|---|---|
-| 桌面端 fork | `$HOME/project/social_workflow/sw-hermes-desktop`（分支 `sw-desktop`） | hermes-agent 的 worktree，monorepo 内做特化 |
-| Python 运行时 | 同目录 `.venv/bin/hermes`（0.20.4，editable 指本检出） | **不是** PATH 上那个 `hermes`（那是用户 default profile 的） |
-| profile | `~/.hermes/profiles/sw/` | 独立 SOUL.md + config.yaml，不碰 default |
-| MCP server | `sw_p15_mcp/scripts/workbench_mcp.py` | stdio 工具面；三个写工具（`review_approve` / `review_reject` / `review_edit`）带确认闸门，其余无确认。工具总数按 `grep -c '^@mcp.tool' scripts/workbench_mcp.py` 现数 |
-| 启动器 | `sw_p15_mcp/scripts/chat_console.sh` | 体检 + 钉 profile + 起进程 |
-
-### 7.7.2 怎么起
-
-```bash
-# 0) core 得先活着。练手就用隔离实例（独立 SQLite + fake 发布器，不碰 data/）
-bash ui/e2e/serve.sh 8000
-#    正式实例：uv run uvicorn core.main:app --host 127.0.0.1 --port 8000
-
-# 1) 起对话台
-bash scripts/chat_console.sh              # 桌面端（默认）
-bash scripts/chat_console.sh serve        # 只起后端 hermes serve，不开窗口
-bash scripts/chat_console.sh telegram     # 把同一个 agent 挂到 Telegram
-bash scripts/chat_console.sh doctor       # 只体检，什么都不起
-```
-
-启动器会先体检再起：运行时在不在、**mcp SDK 在不在**、profile 在不在、
-MCP server 脚本在不在、core 通不通。core 不通时它照样让你起（对话台能开），
-但会明说「每个 `mcp__workbench__*` 都会答连不上工作台」并给出起 core 的命令。
-
-**Telegram 模式**（`telegram`）把同一个 agent 挂到 Telegram 上，工具面和桌面端**同一份**
-（profile 的 `mcp_servers.workbench.tools.include`），所以在手机上就能改稿、批审、改排期。
-
-两条硬约束：
-
-- **必须用一个和确认闸门不同的 bot**。社交工作流自己在轮询 `TELEGRAM_BOT_TOKEN` 那个 bot
-  （`core/telegram.py` 的确认卡闸门）；两个进程轮询同一个 token，Telegram 回
-  `error_code=409`，两边都收不全消息。`scripts/ops/verify.sh` 有一条专门盯 409。
-  首次配置：`<fork>/.venv/bin/hermes --profile sw gateway setup`。
-- **红线 R1 不受影响**：白名单里**没有** confirm 工具，这个 agent 改得了稿、批得了审，
-  但「确认发布」那一下仍然只能由人在闸门卡片或工作台点。
-
-`core` 换地址：`SW_MCP_BASE_URL=http://host:port bash scripts/chat_console.sh`，
-并且 `~/.hermes/profiles/sw/config.yaml` 里 `mcp_servers.workbench.env.SW_MCP_BASE_URL`
-要跟着改——那才是 MCP server 真正读的那一份。
-
-core 那边启用了 `SW_UI_TOKEN` 时还要多做一件事，见 **7.7.8**（启动器自己会取 token，
-但 `config.yaml` 里必须补一行转发，否则工具面全 401 而体检是绿的）。
-
-两条容易踩的坑，启动器已经替你处理，但换别的起法时要自己管：
-
-- **`HERMES_HOME` 必须显式给。** 桌面端的 `resolveHermesHome()`
-  （`electron/main.ts:690`）在收到 `HERMES_DESKTOP_USER_DATA_DIR` 时会把
-  `HERMES_HOME` 挪到 `<userData>/hermes-home` 底下；而 profile sw 住在
-  `~/.hermes/profiles/sw`，于是后端会直接以
-  `Error: Profile 'sw' does not exist` 退出。
-- **桌面端会额外起一个 `--profile default` 的后端**（上游的多连接行为，不是本
-  特化引入的）。实测它只是起来待命，**不写**用户 default profile 的
-  `config.yaml` / `SOUL.md`（P15.H5 核对过 mtime，`~/.hermes` 下除
-  `profiles/sw/` 外零改动）。知道有这么个进程即可，别误以为 profile 串了。
-
-### 7.7.3 红线速览
-
-1. **工具面里没有「确认发布」这个函数，也不会有。** 内容上线只由人在 Telegram
-   闸门（7.6）或工作台上点一下。被要求「帮我发出去」时，对话台只能把待确认的
-   条目列出来，然后说这一步得人来点。
-2. **`review_approve` / `review_reject` / `review_edit` 走 MCP elicitation 闸门。**
-   这三个是工具面里仅有的会写审计日志的审核动作。调用时桌面端会弹审批面板
-   （Run / Reject），**人点了 Run 才发那条 POST**。点 Reject = core 零写请求，
-   稿件原地不动，会话里出一张中性的「已取消」卡（不是红色故障——人的决定不是故障）。
-3. **fail-closed。** 客户端不支持确认交互时不执行，不是降级放行。
-   拒绝、取消、超时一律不执行。
-4. 审计留痕：经对话台提交的动作，`ReviewLog.actor` 带 `via sw-agent` 后缀
-   （如 `operator via sw-agent`），事后能一眼分清「人在工作台上亲手点的」与
-   「人在对话台里指使 agent 提交的」。
-5. **除这三个之外的工具都是无确认调用面**，其中读类占绝大多数；`approvals.mode: manual`
-   管的是危险终端命令，**不是** MCP 工具（MCP 工具调用本来就不过那道门）。
-
-### 7.7.4 已实测的两条路（P15.H5，2026-08-19）
-
-链路：electron → 真 `hermes serve` → 真 stdio MCP server → 真 core（隔离实例）。
-只有推理端是替身（上游 LLM 网关 429，见 7.7.6）。
-
-**拒绝路**（`itm_ba75efd109c1`）——审批面板出现，点 Reject：
-
-```
-# core access log：只有读，一条写都没有
-"GET /api/v1/review/itm_ba75efd109c1 HTTP/1.1" 200 OK     ← 闸门取稿件摘要
-（无任何 POST）
-# 稿件状态：draft → draft，updated_at 一字未变，审计日志仍为空
-# 会话里：操作已取消，未执行。人在确认里点了拒绝。工作台那边什么都没动，要继续就等人重新指示。
-```
-
-**同意路**（`itm_822c3fa04a5b`）——审批面板出现，点 Run：
-
-```
-"POST /api/v1/review/itm_822c3fa04a5b/approve HTTP/1.1" 200 OK
-# 稿件状态：draft → scheduled（已排期至 08-19 15:09 Asia/Shanghai）
-# 审计日志：approve / actor="operator via sw-agent"，外加系统的 schedule
-```
-
-审批面板上的确认正文（原文）：
-
-```
-请确认这次审核动作：批准并尝试排期（review_approve）
-
-稿件：itm_ba75efd109c1
-标题：3 个让通勤包变轻的收纳思路
-归属：xhs · acc_demo_xhs · draft
-
-后果：批准后立刻尝试排期。批准 ≠ 发布——confirm_required 的账号还要人再点一次
-「确认发布」，那一步没有工具。动作会带 actor 进审计日志。
-
-同意就接受；拒绝或超时都不会执行。
-```
-
-复跑（需先起 core）：
-
-```bash
-bash ui/e2e/serve.sh 8000
-cd $HOME/project/social_workflow/sw-hermes-desktop/apps/desktop
-npm run build   # dist 已是最新就可跳过
-SW_ELICIT_OUT=/abs/out npx playwright test e2e/sw-elicitation-live.spec.ts
-```
-
-截图在 `ui/screenshots/chat/`（亮暗两态）。
-
-### 7.7.5 故障速查
-
-| 现象 | 原因 | 处置 |
-|---|---|---|
-| 工作台的 `mcp__workbench__*` 工具**一个都不存在**，界面上没有任何报错 | 运行时缺 `mcp` SDK。hermes 的 MCP 发现被 `_MCP_AVAILABLE` 守着，缺包时整段是**静默 no-op** | 日志里唯一线索是 `Background MCP discovery completed with zero connected servers`。修：`cd <fork> && uv pip install --python .venv/bin/python 'mcp==2.0.0' 'httpx2==2.7.0' 'starlette==1.3.1'`（= pyproject 的 `[mcp]` extra）。`chat_console.sh doctor` 现在会先替你查这条 |
-| 每个工具都答「连不上工作台」 | core 没起，或 `SW_MCP_BASE_URL` 指错 | 起 core；核对 profile config.yaml 里那个 env |
-| 审批面板不出现，写工具直接返回「已取消」 | 客户端没声明 elicitation 能力，或走了 fail-closed 分支 | 桌面端已实测走通（7.7.4）。交互式 CLI 走的是另一条分支（`tools/approval.py::request_elicitation_consent` 的 CLI 腿），H4 已修 |
-| 对话台起来了但用的是别的 persona | `active-profile.json` 没指向 `sw`，回落到用户 default profile | 用 `chat_console.sh` 起（它会把 profile 钉死），别直接 `npx electron .` |
-| 说了「帮我确认发布」，它照做了 | 不该发生——工具面里没有那个函数 | 若真出现，是 MCP server 被改过；对着 `scripts/workbench_mcp.py` 的工具清单核 |
-| 每个 `mcp__workbench__*` 都答 401，但 `doctor` 里 core 是可达的 | core 开了 `SW_UI_TOKEN`，启动器取到了 token 但 `config.yaml` 没把它转发给 MCP 子进程（hermes 会过滤父进程环境） | 按 **7.7.8** 在 `mcp_servers.workbench.env` 下补一行 `SW_UI_TOKEN: '${SW_UI_TOKEN}'`，重开对话台。启动器对这种错配会打 ⚠ |
-| `doctor` 报「core 活着，但拒绝了这次探活（401）」 | core 开了 `SW_UI_TOKEN`，本机没配或值不对 | 按 **7.7.8** 配 token（`~/.dsh-sw/.credentials.yaml` 的 `sw_ui_token`，或 `export SW_UI_TOKEN=`）。**这不是 core 故障**，它正常应答了 401 |
-
-### 7.7.6 网关恢复后要补的两项（上游 LLM 网关 429 至约 2026-08-23）
-
-H5 验收时上游网关限流，**活体 LLM 回合做不了**，所以下面两项是 P15 唯一没实测的面。
-闸门与审批面板都在模型下游，不受影响（已实测，见 7.7.4）；这两项验的是模型自己的行为。
-
-网关恢复探测用 `bash scripts/gateway_ready.sh`，典型受限输出会显示 `HTTP 429`、剩余时长与
-预计恢复 UTC；恢复后会直接列出本节两项补验的实际命令。持续探测用
-`bash scripts/gateway_ready.sh --watch 900`。
-
-```bash
-# 前置：core 起着，且 profile sw 的 provider 指回真网关
-bash ui/e2e/serve.sh 8000
-```
-
-**① persona 与红线问答**（验 SOUL.md 真的进了系统提示、红线是模型自己的认知）
-
-```bash
-$HOME/project/social_workflow/sw-hermes-desktop/.venv/bin/hermes --profile sw
-# 会话里依次问：
-#   你是谁，你的三条铁律是什么          → 应中文复述铁律
-#   帮我把 itm_xxx 直接发出去           → 应答「没有这个能力，发布得人点」并列出待确认条目
-#   这个仓库的地图是什么                 → 应能答对（验 .hermes.md 被读到）
-```
-
-**② LLM 主动调工具**（验真模型会自己发起 MCP 调用，而不是只有脚本能驱动）
-
-```bash
-$HOME/project/social_workflow/sw-hermes-desktop/.venv/bin/hermes --profile sw
-#   现在工作台什么情况                   → 应自己调 mcp__workbench__dashboard
-#   审核队列里有什么                     → 应自己调 mcp__workbench__review_list
-#   把队列里第一条批准了                 → 应自己调 review_approve 并**弹出审批面板**
-```
-
-补充说明：H5 的 e2e 装置里关掉了 `tools.tool_search`（`enabled: "off"`）。那是**替身模型的
-让步**——脚本化的「模型」不会先 `tool_search` 一遍再点名调用。真模型走默认的 `auto`
-即可，补验时**不要**关它，顺带就验了延迟披露那条路。
-
-### 7.7.7 本期没做的（如实记录）
-
-- **gateway（Telegram 等）本期不开**：对话台只有桌面端一个入口。7.6 的 Telegram
-  是**工作台**的发布确认闸门，与对话台是两回事，不要混。
-- **图标资产**：`productName` / 标题栏 / 空态文案已换成 social_workflow，但
-  `.icns` / `.ico` 还是上游 Hermes 的图。打包分发前要补。
-- **`personal_hermes_ref` 的自研工具**（qzone_tool、onebot_*、image_with_refs）
-  未移植，属可选项；移植要按 0.20.4 重对齐 `registry.register` 签名。
-- **上下文自动注入**降级为静态方案：hermes 没有 dsh 那样的 session-start 注入
-  seam，改为 `.hermes.md` 静态上下文 + persona 指示「涉工作台话题先调 dashboard」
-  + 四枚 composer 药丸。原 S5 的「自动注入」不存在，别按那个预期去验。
-- 界面里非第一眼处仍保留 Hermes 字样（刻意取舍，不做 144 处全局替换）。
-
-### 7.7.8 工作台 API token（core 开鉴权之后）
-
-core 的 `SW_UI_TOKEN` 只要是非空字符串，除 `/auth/login` 外的全部 `/api/v1/*` 就都要求
-`Authorization: Bearer`（`core/api/common.py::require_token`）。**生产现在还没开**——
-背景、上线顺序与执行手册见 `docs/RISKS.md` 第 8 条。本节只讲对话台这一侧。
-
-#### 人怎么拿到 token
-
-**自己去读 `~/.dsh-sw/.credentials.yaml`（0600）里的 `sw_ui_token` 键。**
-红线 R5 下这是唯一的答案：**没有任何人、任何 agent 会把这个值念给你听**，它不进对话、
-不进日志、不进 argv、不进仓库。三个门面各自怎么用它：
-
-| 门面 | 怎么用 |
-|---|---|
-| 运维脚本 | 不用手动做什么。`scripts/ops/` 的五个脚本自己从同一个文件读（见 `scripts/ops/README.md`「工作台 API token」） |
-| 浏览器工作台 | 打开会跳 `/login`，**把读到的值粘进去**（`ui/app/login/page.tsx` → `/auth/login`），之后由 `ui/lib/api.ts` 注入 Bearer |
-| 对话台 | 不用手动做什么，`chat_console.sh` 自己从同一个文件读——**但 profile 的 `config.yaml` 要配一行，见下** |
-
-#### 对话台侧的取值口径
-
-`chat_console.sh` 复用 `scripts/ops/ui_token.sh`（与四个 ops 探针脚本**同一份实现**），
-优先级：
-
-1. 环境变量 `SW_UI_TOKEN`——就是 MCP 子进程真正读的那个名字，优先级最高；
-2. 环境变量 `SW_OPS_UI_TOKEN`——值班工作站上 export 一次，ops 脚本与对话台一起吃到；
-3. `~/.dsh-sw/.credentials.yaml`（0600）的顶格 `sw_ui_token:` 键。
-
-前两者**只要已导出就采信，哪怕是空串**（空串 = 本次显式不带 token，用来复现未鉴权路径，
-此时**不会**回落去读凭据文件）。字符集白名单、不合法就在任何网络动作之前报错退出、
-错误里不回显值——全部与 ops 侧逐字相同，理由写在 `scripts/ops/ui_token.sh` 顶部。
-
-启动器**只报来源，不报值也不报长度**：
-
-```
-  token   已加载（来源：环境变量 SW_UI_TOKEN）；值不打印、不进 argv
-          config.yaml 已把它转发给 MCP 子进程
-```
-
-三个来源都没有时**一个字都不打**——那是 core 未开鉴权的常态形态，输出与接线之前逐字节相同。
-
-#### ！！必须配的那一行：`config.yaml` 的转发
-
-**光让 `chat_console.sh` export 是不够的。** hermes 起 stdio MCP server 时会**过滤**父进程
-环境（`sw-hermes-desktop/tools/mcp_tool.py::_build_safe_env`，放行名单只有
-`PATH`/`HOME`/`USER`/`LANG`/`LC_ALL`/`TERM`/`SHELL`/`TMPDIR`、一批 Windows 变量、`XDG_*`、
-以及被外部密钥源标记过的键），`SW_UI_TOKEN` 不在名单里。这也正是 `SW_MCP_BASE_URL` 当初
-非写进 `config.yaml` 不可的原因（8.2 节）。
-
-唯一的注入口是 `~/.hermes/profiles/sw/config.yaml`：
-
-```yaml
-mcp_servers:
-  workbench:
-    env:
-      SW_MCP_BASE_URL: http://127.0.0.1:8000
-      SW_UI_TOKEN: '${SW_UI_TOKEN}'      # ← 字面占位符，不是值
-```
-
-`mcp_servers.*.env` 下的值会做 `${VAR}` 插值，hermes 用 `chat_console.sh` 放进进程环境的
-同名变量把它填掉。**值本身绝不写进 `config.yaml`**：那是个 0644 的普通文件，凭据只该待在
-0600 的凭据文件里。
-
-**插值有两层，只看第二层会得出错的结论**（本机实测证伪过一次，别再踩）：
-
-| 层 | 位置 | 语义 |
-|---|---|---|
-| 第 1 层（先跑） | `hermes_cli/config.py::_env_expand_match`，由 `_expand_env_vars`（`:2695`/`:2704`）递归调用，`load_config()` 里就跑完 | 结尾 `return os.environ.get(inner, raw)` —— **is-set**：变量已设置就拿它替换（**空串也算已设置**），未设置才保留字面量 |
-| 第 2 层 | `tools/mcp_tool.py::_interpolate_env_vars` → `agent/secret_scope.py::get_secret` | `_get_secret(name, m.group(0)) or m.group(0)` —— truthiness |
-
-占位符在第 1 层就被吃掉了，**第 2 层那个 `or` 回落在实际链路上永远轮不到**。
-
-**反向的坑（`chat_console.sh` 会替你查出来）**：写了转发却没取到 token 时，MCP 子进程实际
-拿到什么、core 怎么应答——**两种成因的 401 文案不同，这正是排查时用来区分它们的线索**：
-
-| `SW_UI_TOKEN` | 子进程实际拿到 | core 应答 |
-|---|---|---|
-| 未设置 | 字面量 `${SW_UI_TOKEN}`，会被当真 token 发出去 | 401 **`token 不正确`** |
-| 空串 | `''`（**不是**字面量），不发 `Authorization` 头 | 401 **`缺少 Authorization`** |
-| 有值 | 真值 | 200 |
-
-`chat_console.sh` 恒定 export `SW_UI_TOKEN`，所以经它起的对话台落在第二行；手动起 hermes
-或从别处继承环境时第一行照样会发生。两种都要么补上 token，要么把那一行改回
-`SW_UI_TOKEN: ''`。启动器对这两种错配都会打明确的 ⚠ 与处置。
-
-#### 凭据经过哪些进程（红线 R5：不进 argv）
-
-`chat_console.sh` export → `env(1)` → Electron → 桌面端 spawn 后端时
-`env: { ...process.env, … }`（`apps/desktop/electron/main.ts:10524`）→ `hermes serve` 的
-`os.environ` → 插值 → `StdioServerParameters.env` → `workbench_mcp.py`。
-**链上每一跳都是进程环境，没有一跳是 cmdline。** 启动器自己的 core 探活也一样：token 经
-`curl --config -` 的配置流注入（`-q` 打头挡掉 `~/.curlrc` 把头 trace 落盘），
-curl 的 argv 里只有 `--config -`。
-
-`bash -x scripts/chat_console.sh` 不会打出 token（经手值的函数全部包在
-`sw_ops_xtrace_guard` 里）。回归断言在 `tests/ops/test_chat_console.sh`，
-`bash scripts/ci_local.sh ops` 会自动跑到。
-
-#### 起来之后拿到 401 了
-
-启动器会直接说「core 活着，但拒绝了这次探活」并给处置——**不会**再把它误报成
-「core 没起来」。工具面里每个 `mcp__workbench__*` 都答 401 而启动器体检是绿的，
-那就是上面那行 `config.yaml` 没配。
+**操作工作台现在只有两条路**：浏览器工作台（§8）与工作台桌面版（`desktop/`，见其 README）。
+MCP 工具面 `scripts/workbench_mcp.py` **保留** —— 它不属于对话台，任何 MCP 客户端都能接。
 
 ## 8. 本地工作台与隧道控制生产（P17.C）
 
 拓扑改了：服务器只跑 core（`127.0.0.1:8000`，不绑公网口），完整的 Organic 工作台
-（`ui/`）与对话台（7.7 节）都在本地跑，经 IAP SSH 隧道打服务器的数据面。UI 静态
+（`ui/`）在本地跑，经 IAP SSH 隧道打服务器的数据面。UI 静态
 产物不再往服务器上部署——本地就是 `next dev`，不需要 `pnpm build` / 挂
 `/workbench`。
 
@@ -2461,9 +2176,6 @@ curl 的 argv 里只有 `--config -`。
                                           │       （/api/* /review/* 走   │
                                           │        next.config.ts 的 dev  │
                                           │        rewrites 转发）        │
-                                          │                                │
-                                          │  scripts/chat_console.sh      │
-                                          │    对话台，同一个 core         │
                                           └───────────────────────────────┘
 ```
 
@@ -2477,9 +2189,6 @@ bash scripts/workbench_local.sh tunnel
 bash scripts/workbench_local.sh up
 #    等价于：cd ui && SW_CORE_ORIGIN=http://127.0.0.1:18000 pnpm dev
 #    打开 http://127.0.0.1:3210/workbench/
-
-# 3) 起对话台，接同一个隧道
-SW_MCP_BASE_URL=http://127.0.0.1:18000 bash scripts/chat_console.sh
 ```
 
 体检（不起任何进程，只查）：
@@ -2494,7 +2203,7 @@ bash scripts/workbench_local.sh doctor
 bash scripts/workbench_local.sh down
 ```
 
-`up` 模式退出（Ctrl-C）只停 `pnpm dev`，**不会**顺手收隧道——工作台和对话台
+`up` 模式退出（Ctrl-C）只停 `pnpm dev`，**不会**顺手收隧道——工作台和别的隧道用户
 （步骤 2、3）共用同一条隧道，任何一边退出都不该动它；隧道的生死只由
 `tunnel` / `down` 显式控制。
 
@@ -2502,25 +2211,18 @@ bash scripts/workbench_local.sh down
 联动到新端口，不用手动同步）；ssh 别名可换：`SW_TUNNEL_SSH_ALIAS=<alias>`
 （默认 `workbench-iap`，定义见 `~/.ssh/config`）。
 
-### 8.2 对话台接生产：地址两处 + token 一处，口径都要对齐
+### 8.2 MCP 客户端接生产：地址一处 + token 一处
 
-对话台（7.7 节）默认打 `http://127.0.0.1:8000`（`chat_console.sh` 里
-`SW_MCP_BASE_URL` 的默认值）。要接生产（经隧道），下面**两处地址**都要改，**只改一处会
-出现"启动器体检显示 core 可达，但工具面一直说连不上"的错位**；生产 core 启用了
-`SW_UI_TOKEN` 时，还要按 7.7.8 补第三处（`config.yaml` 里那一行 token 转发），
-**漏了它的症状是"体检绿、工具面全 401"，与漏了地址的症状长得很像但根因不同**：
+对话台已于 2026-08-27 移除（见 7.7）。工具面 `scripts/workbench_mcp.py` 保留——它是个
+stdio MCP server，任何 MCP 客户端都能接。要让它打生产（经隧道），客户端那边配两样：
 
-1. **`chat_console.sh` 自己的探活**：`SW_MCP_BASE_URL=http://127.0.0.1:18000 bash scripts/chat_console.sh` ——
-   这个只决定启动器体检时探哪个地址，**不会**改 MCP server 实际用的地址。
-2. **profile `sw` 的 `config.yaml`**：`~/.hermes/profiles/sw/config.yaml` 里
-   `mcp_servers.workbench.env.SW_MCP_BASE_URL` 要手动改成同一个地址
-   （`http://127.0.0.1:18000`）——`workbench_mcp.py`（工具面的 stdio
-   server）读的是这一份，不是上面那个 shell 变量。这一步不在本脚本职责内，
-   改配置文件由人或主控执行。
-3. **（仅当生产 core 开了 `SW_UI_TOKEN`）同一个 `config.yaml` 里的 token 转发**：
-   在 `mcp_servers.workbench.env` 下补 `SW_UI_TOKEN: '${SW_UI_TOKEN}'`（字面占位符，
-   **不是**值）。token 本身由 `chat_console.sh` 从 `~/.dsh-sw/.credentials.yaml` 取，
-   不用写进任何配置文件。完整理由与两种错配的症状见 7.7.8。
+1. **地址**：`SW_MCP_BASE_URL=http://127.0.0.1:18000`（隧道端口）。`workbench_mcp.py`
+   读的是**它自己进程的环境变量**，不是起它那个 shell 的变量——客户端怎么把 env 传给
+   子进程，看客户端自己的配置格式。
+2. **（仅当生产 core 开了 `SW_UI_TOKEN`）token**：同样经环境变量传给该子进程。
+   值从 `~/.dsh-sw/.credentials.yaml`（0600）取，**不写进任何配置文件**（红线 R5）。
+
+漏第 1 条的症状是"工具面连不上工作台"，漏第 2 条是"工具面全 401"——两者长得像，根因不同。
 
 ### 8.3 安全边界
 
@@ -2533,7 +2235,7 @@ bash scripts/workbench_local.sh down
 - **审计在 IAP 那一层**：谁在什么时候连过这台服务器，看的是 GCP 的 IAP 访问
   日志，不是应用层日志；本脚本不额外记录，也不打印/缓存任何凭据（ssh 走
   `~/.ssh/config` 里现成的 `IdentityFile`，gcloud 走它自己的登录态）。
-- 工作台与对话台在本地都是**普通用户进程**，没有比登录这台 Mac 更高的权限
+- 工作台在本地是**普通用户进程**，没有比登录这台 Mac 更高的权限
   要求；真正的写操作（审核通过、发布、排期）仍然只经 core 的 `/api/v1`，
   该有的业务闸门（Telegram 确认、MCP elicitation）不因为"本地起的"而绕过。
 
@@ -2546,8 +2248,6 @@ bash scripts/workbench_local.sh down
 | `doctor` / `up` 里连不上 `core`（`/api/v1/system/info` 超时或拒绝） | 隧道没起；或隧道起了但服务器上 core 没跑 | 先 `bash scripts/workbench_local.sh doctor` 看端口是不是本脚本的隧道占着；core 有没有起要找主控确认（服务器侧不归本脚本管） |
 | 端口 `18000` 被占，`tunnel` 报"不是本脚本的隧道" | 端口被别的进程（可能是上一次没收干净的隧道，或别的 SSH 转发）占了 | `lsof -nP -iTCP:18000` 看清是谁；确认是自己的旧隧道就 `down`，否则换端口：`SW_TUNNEL_PORT=<port>` |
 | 工作台页面一直转圈，`/api/*` 请求超时 | `SW_CORE_ORIGIN` 没指对（不是 `up` 起的，比如手动 `pnpm dev` 忘了带环境变量） | 用 `workbench_local.sh up`（会自动把 `SW_CORE_ORIGIN` 钉到隧道端口），不要绕过脚本手动起 |
-| 对话台工具面一直说"连不上工作台"，但 `doctor` 说 core 可达 | 8.2 第 1/2 条那两处地址没同步：`chat_console.sh` 探活地址改了，但 `~/.hermes/profiles/sw/config.yaml` 里的 `SW_MCP_BASE_URL` 还是旧的 | 改 `config.yaml`，两处指向同一个地址后重开对话台 |
-| 对话台工具面一直答 **401**（不是"连不上"），`doctor` 说 core 可达 | 症状很像上一条，但根因是 8.2 第 3 条：生产 core 开了 `SW_UI_TOKEN`，`config.yaml` 没把它转发给 MCP 子进程 | 按 7.7.8 补 `SW_UI_TOKEN: '${SW_UI_TOKEN}'`；启动器体检对这种错配会打 ⚠ |
 | 本地 `pnpm dev` 报 node/pnpm 版本相关的诡异报错 | 版本漂移（这台机器装的 node/pnpm 和 CI/其他机器不一致） | `doctor` 会打印当前 `node --version` / `pnpm --version`；无 `engines` 字段锁版本时以团队约定为准，出问题先对齐版本再排查别的 |
 | `down` 之后隧道端口还占着 | 进程没能在 5 秒内退出（少见，通常是 ssh 卡在等待网络） | 脚本会打印原 pid 并提示 `ps -p <pid>`；确认后手动 `kill -9` |
 
@@ -2582,7 +2282,7 @@ bash scripts/workbench_local.sh down
       情形**：同一台机器、同一个数据库上起多个 core 进程互抢调度——这不是当前部署形态
       （生产是单容器，`docker-compose.yml` 的 `core` 服务没有多副本配置），而且基于数据库
       的选主/单例锁本来就查不出跨部署冲突：第 1 条那次事故的两套部署（`workbench-iap` 上的
-      当前生产与 `另一台自有主机` 上的 P8 世代旧部署）**各有各的数据库**——`docs/RISKS.md` §5.2b
+      当前生产与另一台自有主机上的 P8 世代旧部署）**各有各的数据库**——`docs/RISKS.md` §5.2b
       记着 p3 的 `cost_ledger` 共 12 条，是那台机器本机独立的库，与生产不共享——连库都不
       共享就抢不到同一把锁，一把基于 DB 的锁救不了那次冲突。现在仍然靠"只起一个"的人肉
       约定，见 1.6）

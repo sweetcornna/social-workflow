@@ -3,7 +3,7 @@
 # 用途：工作台 API token（core 的 `SW_UI_TOKEN`）在**值班工作站侧**的取用与注入。
 #       被若干脚本以 `source` 引用，不单独执行。**sourcer 名单以
 #       `grep -l 'ui_token\.sh' scripts/ops/*.sh scripts/*.sh` 为准**——这里刻意不枚举、
-#       也不写总数：名单仍在增长（scripts/ops/ 之外还有 scripts/chat_console.sh），
+#       也不写总数：名单仍在增长，
 #       复述一份就多一处要跟着改、且没人钉着的真相。
 #
 # 【为什么需要它】core/api/common.py::require_token：`SW_UI_TOKEN` 只要是非空字符串，
@@ -199,7 +199,7 @@ sw_ops_read_credentials_key() { sw_ops_xtrace_guard _sw_ops_read_credentials_key
 # 取用 token 并校验字符集。**调用方必须已定义 die()**——这是 source 本文件的前置契约，
 # 不满足时会在报错路径上炸成 command not found，而那正是最需要它说话的时候。
 # sourcer 名单以 `grep -l 'ui_token\.sh' scripts/ops/*.sh scripts/*.sh` 为准；当前每一个
-# 都在文件头、`source` 那一行之前定义了 die()，含 scripts/ops/ 之外的 scripts/chat_console.sh。
+# 都在文件头、`source` 那一行之前定义了 die()。
 # 优先级：环境变量 SW_OPS_UI_TOKEN > ~/.dsh-sw/.credentials.yaml 的 sw_ui_token 键。
 # 理由：环境变量是"这一次调用"的显式意图（换 token、做对照实验最方便），凭据文件是长期
 # 约定；显式优先于约定。**只要已导出就采信，哪怕是空串**——空串表示"本次显式不带 token"，
